@@ -1,0 +1,10 @@
+# ── 私人数据，绝不上传 ──────────────────────────────
+# 含真实课表 / 教室的个人备份文件
+timetable-private.json
+*.private.json
+*-private.*
+
+# 其他不应入库的本地文件
+Thumbs.db
+.DS_Store
+desktop.ini

@@ -1,0 +1,1463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="宿舍出勤">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f5f6f8">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<title>宿舍出勤统计</title>
+<style>
+:root{
+  --bg:#f5f6f8; --card:#ffffff; --line:#e5e7eb; --line2:#eef0f3;
+  --text:#111827; --text2:#4b5563; --text3:#9ca3af;
+  --primary:#2563eb; --primary-bg:#eff4fe;
+  --green:#16a34a; --green-bg:#f0fdf4; --green-line:#bbf7d0;
+  --red:#dc2626; --red-bg:#fef2f2; --red-line:#fecaca;
+  --orange:#d97706; --orange-bg:#fffbeb; --orange-line:#fde68a;
+  --violet:#6366f1; --violet-bg:#eef2ff; --violet-line:#c7d2fe;
+  --radius:14px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{margin:0;padding:0;}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  background:var(--bg);color:var(--text);font-size:15px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;overscroll-behavior-y:none;
+}
+button,input,select{font-family:inherit;color:inherit;}
+#app{max-width:760px;margin:0 auto;padding:0 12px 88px;}
+
+/* ---------- 顶栏 ---------- */
+#topbar{padding:14px 2px 4px;display:flex;align-items:baseline;gap:8px;}
+#topbar h1{font-size:19px;margin:0;font-weight:650;letter-spacing:-.2px;}
+#topbar .sub{font-size:12px;color:var(--text3);}
+
+/* ---------- 卡片 ---------- */
+.card{background:var(--card);border-radius:var(--radius);padding:14px;margin-bottom:12px;border:1px solid rgba(17,24,39,.05);box-shadow:0 1px 2px rgba(16,24,40,.04);}
+.card-head{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+.card-title{font-size:14px;font-weight:600;}
+.card-note{margin-left:auto;font-size:12px;color:var(--text3);}
+
+/* ---------- 日期条 ---------- */
+.datebar{display:flex;align-items:center;gap:8px;margin:10px 0 12px;background:var(--card);border-radius:var(--radius);padding:7px;border:1px solid rgba(17,24,39,.05);box-shadow:0 1px 2px rgba(16,24,40,.04);}
+.datebar .nav-btn{width:40px;height:40px;flex:none;border:0;background:#f3f4f6;border-radius:11px;font-size:17px;color:var(--text2);cursor:pointer;line-height:1;}
+.datebar .nav-btn:active{background:#e5e7eb;}
+.datebar .center{flex:1;position:relative;text-align:center;padding:2px 0;cursor:pointer;border-radius:10px;}
+.datebar .center:active{background:#f9fafb;}
+.datebar .center input[type=date]{position:absolute;inset:0;width:100%;height:100%;opacity:0;border:0;padding:0;}
+.db-date{font-size:15px;font-weight:600;}
+.db-sub{font-size:11px;color:var(--text3);margin-top:1px;}
+.tag{display:inline-block;font-size:10px;padding:1px 7px;border-radius:20px;font-weight:600;vertical-align:1px;}
+.tag.lesson{background:var(--primary-bg);color:var(--primary);}
+.tag.exam{background:var(--orange-bg);color:var(--orange);}
+.tag.holiday{background:var(--red-bg);color:var(--red);}
+.tag.swap{background:var(--violet-bg);color:var(--violet);}
+.tag.before{background:#f3f4f6;color:var(--text3);}
+
+/* ---------- 节次块 ---------- */
+.period{margin-bottom:14px;}
+.period-head{display:flex;align-items:baseline;gap:7px;margin:0 3px 7px;}
+.period-name{font-size:13.5px;font-weight:600;}
+.period-time{font-size:11.5px;color:var(--text3);}
+.period-meta{margin-left:auto;font-size:11.5px;color:var(--text3);}
+.pgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;}
+.cell{
+  border-radius:11px;padding:7px 5px 6px;min-height:78px;border:1px solid var(--line);background:#fff;
+  display:flex;flex-direction:column;align-items:center;cursor:pointer;overflow:hidden;transition:background .12s;
+}
+.cell:active{transform:scale(.975);}
+.cell .m{font-size:10.5px;color:var(--text3);margin-bottom:3px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.cell .c{font-size:12px;font-weight:600;line-height:1.25;text-align:center;word-break:break-all;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:30px;}
+.cell .badge{margin-top:auto;font-size:10px;padding:1px 7px;border-radius:20px;font-weight:600;}
+.cell.empty{background:#fafbfc;border-style:dashed;justify-content:center;cursor:default;}
+.cell.empty .c{font-weight:400;font-size:11px;color:var(--text3);min-height:0;}
+.cell.empty:active{transform:none;}
+.cell.st-present{background:var(--green-bg);border-color:var(--green-line);}
+.cell.st-present .badge{background:#dcfce7;color:var(--green);}
+.cell.st-absent{background:var(--red-bg);border-color:var(--red-line);}
+.cell.st-absent .badge{background:#fee2e2;color:var(--red);}
+.cell.st-late{background:var(--orange-bg);border-color:var(--orange-line);}
+.cell.st-late .badge{background:#fef3c7;color:var(--orange);}
+.cell.st-leave{background:var(--violet-bg);border-color:var(--violet-line);}
+.cell.st-leave .badge{background:#e0e7ff;color:var(--violet);}
+
+/* ---------- 汇总条 ---------- */
+.summary{display:flex;gap:8px;margin-bottom:12px;}
+.sum{flex:1;background:var(--card);border-radius:12px;padding:10px 8px;text-align:center;border:1px solid rgba(17,24,39,.05);}
+.sum .v{font-size:20px;font-weight:700;letter-spacing:-.5px;line-height:1.15;}
+.sum .l{font-size:11px;color:var(--text3);margin-top:2px;}
+.v.green{color:var(--green);} .v.red{color:var(--red);} .v.blue{color:var(--primary);} .v.gray{color:var(--text2);}
+
+/* ---------- 按钮 ---------- */
+.btn{border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 13px;font-size:13px;cursor:pointer;font-weight:500;}
+.btn:active{background:#f3f4f6;}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:#fff;}
+.btn.primary:active{background:#1d4ed8;}
+.btn.sm{padding:5px 10px;font-size:12px;border-radius:8px;}
+.btn.danger{color:var(--red);border-color:var(--red-line);}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap;}
+
+/* ---------- 空态 ---------- */
+.empty-state{text-align:center;padding:26px 10px;color:var(--text3);font-size:13px;}
+
+/* ---------- 成员芯片 ---------- */
+.chip-row{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;}
+.chip{border:1px solid var(--line);background:#fff;border-radius:11px;padding:11px 10px;text-align:left;cursor:pointer;display:flex;align-items:center;gap:8px;}
+.chip:active{background:#f9fafb;}
+.chip .dot{width:9px;height:9px;border-radius:50%;flex:none;}
+.chip .nm{font-size:13px;font-weight:600;}
+.chip .say{margin-left:auto;font-size:11px;font-weight:600;}
+.chip.in{background:var(--green-bg);border-color:var(--green-line);}
+.chip.in .dot{background:var(--green);}
+.chip.in .say{color:var(--green);}
+.chip.out{background:var(--red-bg);border-color:var(--red-line);}
+.chip.out .dot{background:var(--red);}
+.chip.out .say{color:var(--red);}
+
+/* ---------- 进度条 ---------- */
+.bar{height:7px;border-radius:6px;background:#eef0f3;overflow:hidden;display:flex;}
+.bar i{display:block;height:100%;}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:11.5px;color:var(--text2);margin-top:8px;}
+.legend span{display:flex;align-items:center;gap:4px;}
+.legend i{width:8px;height:8px;border-radius:2px;display:block;}
+
+/* ---------- 排行 ---------- */
+.rank{display:flex;align-items:center;gap:9px;margin-bottom:9px;font-size:12.5px;}
+.rank .rk{width:18px;color:var(--text3);font-size:11px;flex:none;}
+.rank .rn{width:88px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.rank .rb{flex:1;height:14px;background:#f3f4f6;border-radius:7px;overflow:hidden;}
+.rank .rb i{display:block;height:100%;background:var(--red);opacity:.75;border-radius:7px;}
+.rank .rv{width:34px;text-align:right;font-weight:600;color:var(--red);flex:none;}
+
+/* ---------- 列表行 ---------- */
+.row{display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--line2);font-size:13px;}
+.row:last-child{border-bottom:0;}
+.row .rt{font-weight:600;}
+.row .rs{color:var(--text3);font-size:11.5px;}
+.row .rr{margin-left:auto;display:flex;gap:6px;align-items:center;}
+
+/* ---------- 表单 ---------- */
+.field{margin-bottom:10px;}
+.field label{display:block;font-size:12px;color:var(--text2);margin-bottom:4px;}
+.field input,.field select{width:100%;border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-size:14px;background:#fff;}
+.field input:focus,.field select:focus{outline:2px solid var(--primary-bg);border-color:var(--primary);}
+.fgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:9px;}
+.fgrid3{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;}
+
+/* ---------- Segmented ---------- */
+.seg{display:flex;background:#f3f4f6;border-radius:10px;padding:3px;gap:3px;}
+.seg button{flex:1;border:0;background:none;padding:6px 4px;font-size:12.5px;border-radius:8px;cursor:pointer;color:var(--text2);font-weight:500;}
+.seg button.on{background:#fff;color:var(--text);font-weight:600;box-shadow:0 1px 2px rgba(16,24,40,.08);}
+
+/* ---------- 提示条 ---------- */
+.tip{display:flex;gap:8px;align-items:flex-start;background:#fffbeb;border:1px solid var(--orange-line);border-radius:11px;padding:10px 12px;font-size:12.5px;color:#92400e;margin-bottom:12px;}
+.tip.blue{background:var(--primary-bg);border-color:#dbe6fd;color:#1e40af;}
+.tip .tx{flex:1;}
+.tip b{font-weight:600;}
+
+/* ---------- Tabbar ---------- */
+#tabbar{
+  position:fixed;left:0;right:0;bottom:0;display:flex;z-index:50;
+  background:rgba(255,255,255,.94);backdrop-filter:saturate(180%) blur(14px);-webkit-backdrop-filter:saturate(180%) blur(14px);
+  border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);
+}
+#tabbar button{
+  flex:1;border:0;background:none;padding:8px 0 7px;font-size:10.5px;color:var(--text3);
+  display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;font-weight:500;
+}
+#tabbar button.on{color:var(--primary);}
+#tabbar svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
+
+/* ---------- Sheet ---------- */
+#sheetRoot{position:fixed;inset:0;pointer-events:none;z-index:100;}
+.mask{position:absolute;inset:0;background:rgba(17,24,39,.38);opacity:0;transition:opacity .2s;pointer-events:auto;}
+.mask.on{opacity:1;}
+.sheet{
+  position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:19px 19px 0 0;
+  padding:16px 16px calc(16px + env(safe-area-inset-bottom));max-width:760px;margin:0 auto;
+  transform:translateY(102%);transition:transform .24s cubic-bezier(.32,.72,0,1);pointer-events:auto;max-height:88vh;overflow:auto;
+}
+.sheet.on{transform:translateY(0);}
+.sheet-grip{width:38px;height:4px;border-radius:3px;background:#e5e7eb;margin:0 auto 12px;}
+.sheet h3{margin:0 0 2px;font-size:16px;}
+.sheet .sst{font-size:12.5px;color:var(--text3);margin-bottom:14px;}
+.sheet-opts{display:grid;grid-template-columns:repeat(2,1fr);gap:9px;}
+.sheet-opts button{border:1px solid var(--line);background:#fff;border-radius:12px;padding:13px 10px;font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;justify-content:center;}
+.sheet-opts button i{width:10px;height:10px;border-radius:50%;display:block;flex:none;}
+.sheet-opts button:active{background:#f9fafb;}
+.sheet-opts button.sel{border-width:2px;}
+.sheet-opts button.o-present.sel{background:var(--green-bg);border-color:var(--green);color:var(--green);}
+.sheet-opts button.o-absent.sel{background:var(--red-bg);border-color:var(--red);color:var(--red);}
+.sheet-opts button.o-late.sel{background:var(--orange-bg);border-color:var(--orange);color:var(--orange);}
+.sheet-opts button.o-leave.sel{background:var(--violet-bg);border-color:var(--violet);color:var(--violet);}
+.sheet-opts button.o-present i{background:var(--green);}
+.sheet-opts button.o-absent i{background:var(--red);}
+.sheet-opts button.o-late i{background:var(--orange);}
+.sheet-opts button.o-leave i{background:var(--violet);}
+.sheet-close{width:100%;margin-top:11px;border:1px solid var(--line);background:#fff;border-radius:12px;padding:12px;font-size:14px;cursor:pointer;font-weight:500;}
+
+/* ---------- 图表 ---------- */
+.chart-wrap{overflow:hidden;}
+.chart-legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:6px;font-size:11.5px;color:var(--text2);}
+.chart-legend button{display:flex;align-items:center;gap:5px;border:0;background:none;padding:2px 0;font-size:11.5px;cursor:pointer;color:var(--text2);}
+.chart-legend button.off{opacity:.34;text-decoration:line-through;}
+.chart-legend i{width:9px;height:9px;border-radius:50%;display:block;}
+
+@media (max-width:360px){
+  .pgrid{gap:5px;}
+  .cell{padding:6px 3px;min-height:72px;}
+  .cell .c{font-size:11px;}
+  .chip-row{grid-template-columns:1fr;}
+  .fgrid{grid-template-columns:1fr;}
+  .fgrid3{grid-template-columns:repeat(2,1fr);}
+}
+@media (min-width:640px){
+  .pgrid{grid-template-columns:repeat(4,1fr);gap:10px;}
+  .cell{min-height:88px;}
+  .chip-row{grid-template-columns:repeat(4,1fr);}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar"></div>
+  <main id="view"></main>
+</div>
+<nav id="tabbar"></nav>
+<div id="sheetRoot"></div>
+<script>
+(function(){
+'use strict';
+
+/* ================= 常量 ================= */
+var DB_KEY = 'dormAttendance.v1';
+var BACKUP_KEY = 'dormAttendance.lastBackupAt';
+var WD = ['一','二','三','四','五','六','日'];
+
+var STATUS = {
+  present:{label:'出勤', color:'#16a34a', cls:'st-present'},
+  absent :{label:'缺勤', color:'#dc2626', cls:'st-absent'},
+  late   :{label:'迟到', color:'#d97706', cls:'st-late'},
+  leave  :{label:'请假', color:'#6366f1', cls:'st-leave'}
+};
+
+var MEMBER_COLORS = ['#2563eb','#0891b2','#7c3aed','#db2777','#ea580c','#059669'];
+
+/* ================= 存储 ================= */
+var LS_OK = (function(){
+  try{ localStorage.setItem('__t','1'); localStorage.removeItem('__t'); return true; }
+  catch(e){ return false; }
+})();
+var MEMSTORE = {};
+function lsGet(k){ try{ return LS_OK ? localStorage.getItem(k) : (MEMSTORE[k]===undefined?null:MEMSTORE[k]); }catch(e){ return null; } }
+function lsSet(k,v){ try{ if(LS_OK) localStorage.setItem(k,v); else MEMSTORE[k]=v; }catch(e){} }
+
+/* ================= 日期工具 ================= */
+function pad2(n){ return (n<10?'0':'')+n; }
+function fmt(dt){ return dt.getFullYear()+'-'+pad2(dt.getMonth()+1)+'-'+pad2(dt.getDate()); }
+function parseD(s){ var a=String(s).split('-'); return new Date(+a[0], +a[1]-1, +a[2]); }
+function addDays(dt,n){ var d=new Date(dt.getFullYear(),dt.getMonth(),dt.getDate()); d.setDate(d.getDate()+n); return d; }
+function isoWd(dt){ return (dt.getDay()+6)%7+1; }
+function todayStr(){ return fmt(new Date()); }
+function cnDate(ds){ var d=parseD(ds); return (d.getMonth()+1)+'月'+d.getDate()+'日'; }
+function cnWd(ds){ return '周'+WD[isoWd(parseD(ds))-1]; }
+
+/* ================= 数据层 ================= */
+var db = null;
+
+function defaultConfig(){
+  return {
+    semesterStart:'2026-09-07',
+    teachingWeeks:17,
+    totalWeeks:19,
+    periodNames:['上午一','上午二','下午一','下午二','晚上'],
+    periodTimes:['08:00-09:40','10:10-11:50','14:20-16:00','16:30-18:10','19:00-20:40']
+  };
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   出于隐私考虑，本仓库不预置任何真实课表。
+   首次使用请在「设置 → 课表管理」录入课程，或导入自己的备份 JSON。
+
+   大节编号约定：1=上午一(1-2小节) 2=上午二(3-4) 3=下午一(5-6) 4=下午二(7-8) 5=晚上(9-10)
+   如需新增课程，格式为：
+     {day:1, period:2, name:'课程名', room:'教室'}
+
+   下面保持为空数组即可。个人课表请放在项目根目录的 timetable-private.json 里导入，
+   该文件已被 .gitignore 排除，不会进入版本库。
+   ───────────────────────────────────────────────────────────────────── */
+var COURSE_TEMPLATE = [];
+
+function seedDb(){
+  var M = ['m1','m2','m3','m4'];
+  var courses = [];
+  M.forEach(function(mid, mi){
+    COURSE_TEMPLATE.forEach(function(t, ti){
+      courses.push({
+        id:'c' + (mi+1) + '_' + (ti+1),
+        memberId:mid, name:t.name, room:t.room,
+        day:t.day, period:t.period, from:1, to:17, type:'all'
+      });
+    });
+  });
+  return {
+    version:1,
+    config: defaultConfig(),
+    members:[
+      {id:M[0], name:'我'},
+      {id:M[1], name:'室友A'},
+      {id:M[2], name:'室友B'},
+      {id:M[3], name:'室友C'}
+    ],
+    courses: courses,
+    overrides:{
+      /* 教务处已公布的 2026-1 学期假期与调休 */
+      '2026-09-20':{asDay:5, week:4, note:'补第4周周五课'},
+      '2026-09-25':{holiday:true, note:'中秋假期'},
+      '2026-09-26':{holiday:true, note:'中秋假期'},
+      '2026-09-27':{holiday:true, note:'中秋假期'},
+      '2026-10-01':{holiday:true, note:'国庆假期'},
+      '2026-10-02':{holiday:true, note:'国庆假期'},
+      '2026-10-03':{holiday:true, note:'国庆假期'},
+      '2026-10-04':{holiday:true, note:'国庆假期'},
+      '2026-10-05':{holiday:true, note:'国庆假期'},
+      '2026-10-06':{holiday:true, note:'国庆假期'},
+      '2026-10-07':{holiday:true, note:'国庆假期'},
+      '2026-10-10':{asDay:3, week:5, note:'补第5周周三课'}
+    },
+    attendance:{},
+    dorm:{}
+  };
+}
+
+function normalize(){
+  if(!db || typeof db !== 'object') db = seedDb();
+  if(!db.config) db.config = defaultConfig();
+  var c = db.config;
+  if(!c.semesterStart) c.semesterStart = '2026-09-07';
+  if(!c.teachingWeeks) c.teachingWeeks = 17;
+  if(!c.totalWeeks) c.totalWeeks = 19;
+  if(!c.periodNames || !c.periodNames.length) c.periodNames = defaultConfig().periodNames;
+  if(!c.periodTimes || !c.periodTimes.length) c.periodTimes = defaultConfig().periodTimes;
+  while(c.periodNames.length < 5) c.periodNames.push('第'+(c.periodNames.length+1)+'节');
+  while(c.periodTimes.length < 5) c.periodTimes.push('');
+  if(!db.members) db.members = [];
+  if(!db.courses) db.courses = [];
+  if(!db.overrides) db.overrides = {};
+  if(!db.attendance) db.attendance = {};
+  if(!db.dorm) db.dorm = {};
+  db.members.forEach(function(m,i){ if(!m.color) m.color = MEMBER_COLORS[i%MEMBER_COLORS.length]; });
+}
+
+function saveDb(){
+  lsSet(DB_KEY, JSON.stringify(db));
+}
+
+function loadDb(){
+  var raw = lsGet(DB_KEY);
+  var fresh = false;
+  if(raw){ try{ db = JSON.parse(raw); }catch(e){ db = null; } }
+  if(!db){ db = seedDb(); fresh = true; }
+  normalize();
+  if(fresh) saveDb();
+}
+
+/* ================= 学期 / 周次 ================= */
+function weekIndex(ds){
+  var start = parseD(db.config.semesterStart);
+  var d = parseD(ds);
+  var days = Math.round((d - start)/86400000);
+  return Math.floor(days/7) + 1;
+}
+function weekStartOf(wk){
+  return addDays(parseD(db.config.semesterStart), (wk-1)*7);
+}
+function currentWeek(){ return weekIndex(todayStr()); }
+function inRange(course, wk){
+  if(wk < course.from || wk > course.to) return false;
+  if(course.type === 'odd'  && wk % 2 === 0) return false;
+  if(course.type === 'even' && wk % 2 !== 0) return false;
+  return true;
+}
+function weekType(wk){
+  if(wk < 1) return 'before';
+  if(wk <= db.config.teachingWeeks) return 'lesson';
+  if(wk <= db.config.totalWeeks) return 'exam';
+  return 'after';
+}
+function weekTypeLabel(t){
+  return {lesson:'教学周', exam:'考试周', holiday:'假期', swap:'调休', before:'未开学', after:'已放假'}[t] || '';
+}
+
+/* 解析某天的实际课程（含调休 / 假期 / 停课）
+   注意：调休补课日往往不在被补的那一周（如 9/20 补第 4 周周五课），
+   所以用独立的 courseWeek 决定"按哪一周的课表筛课"，week 仍保留自然周次用于显示。 */
+function resolveDay(ds){
+  var ov = db.overrides[ds] || {};
+  var wk = weekIndex(ds);
+  var cwk = ov.week || wk;
+  var natural = isoWd(parseD(ds));
+  var out = {date:ds, week:wk, courseWeek:cwk, day:natural, courses:[],
+             holiday:false, swap:false, note:ov.note||'', wkType:weekType(wk)};
+
+  if(ov.holiday){ out.holiday = true; return out; }
+  if(wk < 1 || wk > db.config.totalWeeks) return out;
+
+  var day = ov.asDay || natural;
+  out.swap = !!ov.asDay;
+  out.day = day;
+
+  var cancel = ov.cancel || [];
+  db.courses.forEach(function(c){
+    if(c.day !== day) return;
+    if(!inRange(c, cwk)) return;
+    if(cancel.indexOf(c.id) >= 0) return;
+    out.courses.push(c);
+  });
+  if(ov.add && ov.add.length) out.courses = out.courses.concat(ov.add);
+  return out;
+}
+
+/* ================= 考勤读写 ================= */
+function attKey(ds, mid, cid){ return ds + '|' + mid + '|' + cid; }
+function getAtt(ds, mid, cid){
+  return db.attendance[attKey(ds,mid,cid)] || 'present';
+}
+function setAtt(ds, mid, cid, st){
+  var k = attKey(ds,mid,cid);
+  if(st === 'present') delete db.attendance[k];
+  else db.attendance[k] = st;
+  saveDb();
+}
+function dayAbsentCount(ds){
+  var info = resolveDay(ds), n = 0;
+  info.courses.forEach(function(c){ if(getAtt(ds,c.memberId,c.id) !== 'present') n++; });
+  return n;
+}
+
+/* ================= 在宿读写 ================= */
+function dormRec(ds){ return db.dorm[ds] || {absent:[], reason:{}}; }
+function dormStatus(ds, mid){
+  var r = dormRec(ds);
+  return (r.absent.indexOf(mid) >= 0) ? (r.reason[mid] || '外出') : '在宿';
+}
+function setDorm(ds, mid, val){
+  var r = dormRec(ds);
+  var abs = r.absent.slice(), rs = {};
+  for(var k in r.reason) rs[k] = r.reason[k];
+  var i = abs.indexOf(mid);
+  if(val === '在宿'){ if(i>=0) abs.splice(i,1); delete rs[mid]; }
+  else { if(i<0) abs.push(mid); rs[mid] = val; }
+  if(abs.length){ db.dorm[ds] = {absent:abs, reason:rs}; }
+  else { delete db.dorm[ds]; }
+  saveDb();
+}
+
+/* ================= 统计 ================= */
+function semesterDays(uptoToday){
+  var start = parseD(db.config.semesterStart);
+  var total = db.config.totalWeeks * 7;
+  var out = [], t = todayStr();
+  for(var i=0;i<total;i++){
+    var ds = fmt(addDays(start,i));
+    if(uptoToday && ds > t) break;
+    out.push(ds);
+  }
+  return out;
+}
+
+function computeStats(){
+  var days = semesterDays(true);
+  var per = {}, byWeek = {}, byCourse = {}, byCourseName = {};
+  var dormByWeek = {}, dormAbsent = 0, dormTotal = 0;
+
+  db.members.forEach(function(m){
+    per[m.id] = {present:0, absent:0, late:0, leave:0, total:0};
+  });
+
+  days.forEach(function(ds){
+    var wk = weekIndex(ds);
+    if(!byWeek[wk]) byWeek[wk] = {present:0, absent:0, late:0, leave:0};
+    var info = resolveDay(ds);
+    info.courses.forEach(function(c){
+      var st = getAtt(ds, c.memberId, c.id);
+      if(!per[c.memberId]) per[c.memberId] = {present:0,absent:0,late:0,leave:0,total:0};
+      per[c.memberId].total++;
+      per[c.memberId][st]++;
+      byWeek[wk][st]++;
+      var key = c.name;
+      if(!byCourse[key]) byCourse[key] = {name:c.name, absent:0, late:0, total:0};
+      byCourse[key].total++;
+      if(st === 'absent') byCourse[key].absent++;
+      if(st === 'late')   byCourse[key].late++;
+    });
+    /* 在宿 */
+    var rec = db.dorm[ds];
+    var n = (rec && rec.absent) ? rec.absent.length : 0;
+    dormAbsent += n;
+    dormTotal += db.members.length;
+    dormByWeek[wk] = (dormByWeek[wk]||0) + n;
+  });
+
+  var agg = {present:0, absent:0, late:0, leave:0, total:0};
+  Object.keys(per).forEach(function(k){
+    ['present','absent','late','leave','total'].forEach(function(f){ agg[f] += per[k][f]; });
+  });
+
+  return {
+    per:per, agg:agg, byWeek:byWeek, byCourse:byCourse,
+    dormByWeek:dormByWeek, dormAbsent:dormAbsent, dormTotal:dormTotal,
+    days:days.length, weeks: days.length ? weekIndex(days[days.length-1]) : 0
+  };
+}
+
+function rate(present, absent, late){
+  var den = present + absent + late;
+  if(!den) return null;
+  return present / den * 100;
+}
+function pct(v){ return v===null ? '—' : (Math.round(v*10)/10) + '%'; }
+
+/* ================= 图表（纯 SVG，无依赖） ================= */
+function lineChart(labels, series, opt){
+  opt = opt || {};
+  var H = opt.height || 180, W = 360;
+  var padL = 30, padR = 10, padT = 14, padB = 24;
+  var iw = W - padL - padR, ih = H - padT - padB;
+  var n = labels.length;
+  var hi = (opt.max !== undefined) ? opt.max : 100;
+  var lo = (opt.min !== undefined) ? opt.min : 0;
+  if(hi <= lo) hi = lo + 1;
+  var span = hi - lo;
+  function X(i){ return n<=1 ? padL + iw/2 : padL + iw*i/(n-1); }
+  function Y(v){ return padT + ih*(1 - (Math.max(lo,Math.min(hi,v)) - lo)/span); }
+  function tk(v){ return span >= 15 ? String(Math.round(v)) : String(Math.round(v*10)/10); }
+
+  var g = '';
+  for(var k=0;k<=4;k++){
+    var v = lo + span*k/4, yv = Y(v);
+    g += '<line x1="'+padL+'" y1="'+yv.toFixed(1)+'" x2="'+(W-padR)+'" y2="'+yv.toFixed(1)+'" stroke="#eef0f3" stroke-width="1"/>';
+    g += '<text x="'+(padL-5)+'" y="'+(yv+3.5).toFixed(1)+'" text-anchor="end" font-size="10" fill="#9ca3af">'+tk(v)+'</text>';
+  }
+
+  var paths = '', dots = '';
+  series.forEach(function(s){
+    if(s.hidden) return;
+    var pts = s.data.map(function(v,i){
+      return v===null ? null : [X(i), Y(v)];
+    });
+    var d = '', started = false;
+    pts.forEach(function(p){
+      if(!p){ started = false; return; }
+      d += (started ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1) + ' ';
+      started = true;
+    });
+    if(d) paths += '<path d="'+d.trim()+'" fill="none" stroke="'+s.color+'" stroke-width="'+(s.width||2)+'" stroke-linecap="round" stroke-linejoin="round" opacity="'+(s.opacity||1)+'"/>';
+    if(s.dots !== false){
+      pts.forEach(function(p){
+        if(!p) return;
+        dots += '<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="2.4" fill="#fff" stroke="'+s.color+'" stroke-width="'+(s.width>2?1.8:1.3)+'" opacity="'+(s.opacity||1)+'"/>';
+      });
+    }
+  });
+
+  var xl = '';
+  var step = n > 20 ? 2 : 1;
+  labels.forEach(function(l,i){
+    if(i % step !== 0) return;
+    xl += '<text x="'+X(i).toFixed(1)+'" y="'+(H-8)+'" text-anchor="middle" font-size="10" fill="#9ca3af">'+l+'</text>';
+  });
+
+  return '<svg viewBox="0 0 '+W+' '+H+'" width="100%" preserveAspectRatio="xMidYMid meet" style="display:block">'
+    + g + paths + dots + xl + '</svg>';
+}
+
+/* ================= 状态 ================= */
+var state = {
+  tab:'today',
+  date: todayStr(),
+  dormDate: todayStr(),
+  statTab:'attendance',
+  hidden:{}
+};
+
+/* ================= 渲染：顶栏 & Tabbar ================= */
+var ICONS = {
+  today:'<svg viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M8 3v3M16 3v3M3 9.5h18"/><path d="M8.5 14.5l2.2 2.2 4.3-4.6"/></svg>',
+  dorm:'<svg viewBox="0 0 24 24"><path d="M3.5 10.5L12 3.5l8.5 7"/><path d="M5.5 9.8V20h13V9.8"/><path d="M10 20v-5.5h4V20"/></svg>',
+  stats:'<svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
+  settings:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 14.5a1.7 1.7 0 00.34 1.87l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.7 1.7 0 00-1.87-.34 1.7 1.7 0 00-1 1.55V21a2 2 0 11-4 0v-.09a1.7 1.7 0 00-1.11-1.55 1.7 1.7 0 00-1.87.34l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.7 1.7 0 00.34-1.87 1.7 1.7 0 00-1.55-1H3a2 2 0 110-4h.09A1.7 1.7 0 004.64 8.9a1.7 1.7 0 00-.34-1.87l-.06-.06a2 2 0 112.83-2.83l.06.06a1.7 1.7 0 001.87.34H9a1.7 1.7 0 001-1.55V3a2 2 0 114 0v.09a1.7 1.7 0 001 1.55 1.7 1.7 0 001.87-.34l.06-.06a2 2 0 112.83 2.83l-.06.06a1.7 1.7 0 00-.34 1.87V9a1.7 1.7 0 001.55 1H21a2 2 0 110 4h-.09a1.7 1.7 0 00-1.51 1z"/></svg>'
+};
+var TABS = [
+  {k:'today',  nm:'今日', ic:'today'},
+  {k:'dorm',   nm:'在宿', ic:'dorm'},
+  {k:'stats',  nm:'统计', ic:'stats'},
+  {k:'settings',nm:'设置', ic:'settings'}
+];
+
+function renderTop(){
+  var wk = currentWeek();
+  var el = document.getElementById('topbar');
+  el.innerHTML = '<h1>宿舍出勤</h1><div class="sub">第 '+wk+' 周 · 开学 '+db.config.semesterStart+'</div>';
+}
+function renderTabs(){
+  var el = document.getElementById('tabbar');
+  el.innerHTML = TABS.map(function(t){
+    return '<button class="'+(state.tab===t.k?'on':'')+'" onclick="App.go(\''+t.k+'\')">'+ICONS[t.ic]+'<span>'+t.nm+'</span></button>';
+  }).join('');
+}
+
+/* ================= 渲染：今日 ================= */
+function viewToday(){
+  var ds = state.date;
+  var wk = weekIndex(ds);
+  var wt = weekType(wk);
+  var ov = db.overrides[ds] || {};
+  var info = resolveDay(ds);
+  var h = '';
+
+  /* 备份提醒 */
+  var lb0 = lsGet(BACKUP_KEY);
+  var hasData = (Object.keys(db.attendance).length + Object.keys(db.dorm).length) > 0;
+  if(hasData && (!lb0 || (Date.now() - (+lb0) > 7*86400000))){
+    h += '<div class="tip"><div class="tx">数据只存在这台设备上。<b>建议每周导出一次备份</b>，避免换设备或浏览器清理数据时丢失。</div>'
+       + '<button class="btn sm" onclick="App.exportData()">导出</button></div>';
+  }
+
+  /* 日期条 */
+  var tagCls = info.holiday ? 'holiday' : (info.swap ? 'swap' : wt);
+  var tagTxt = info.holiday ? '假期' : (info.swap ? '调休' : weekTypeLabel(wt));
+  h += '<div class="datebar">'
+     +   '<button class="nav-btn" onclick="App.shiftDay(-1)">&#8249;</button>'
+     +   '<label class="center">'
+     +     '<input type="date" value="'+ds+'" onchange="App.setDate(this.value)">'
+     +     '<div class="db-date">'+cnDate(ds)+' '+cnWd(ds)+'</div>'
+     +     '<div class="db-sub">第 '+wk+' 周 · <span class="tag '+tagCls+'">'+tagTxt+'</span>'
+     +       (info.note ? ' · '+esc(info.note) : '') + '</div>'
+     +   '</label>'
+     +   '<button class="nav-btn" onclick="App.shiftDay(1)">&#8250;</button>'
+     + '</div>';
+
+  if(ds !== todayStr()){
+    h += '<div style="margin:-6px 0 12px;text-align:right"><button class="btn sm" onclick="App.setDate(\''+todayStr()+'\')">回到今天</button></div>';
+  }
+
+  /* 假期 / 未开学 / 已结束 */
+  if(info.holiday){
+    h += '<div class="card"><div class="empty-state">今天是假期'+(info.note?'（'+esc(info.note)+'）':'')+'<br>没有课程安排</div>'
+       + '<div class="btn-row" style="justify-content:center"><button class="btn sm" onclick="App.go(\'dorm\')">去做在宿打卡</button></div></div>';
+    return h;
+  }
+  if(wt === 'before' || wt === 'after'){
+    h += '<div class="card"><div class="empty-state">'+(wt==='before'?'学期还没开始':'学期已经结束')+'</div></div>';
+    return h;
+  }
+  if(!info.courses.length){
+    if(!db.courses.length){
+      h += '<div class="card"><div class="empty-state">还没有录入课表<br>'
+         + '<span style="font-size:12px;color:var(--text3)">去「设置 → 课表管理」添加课程，或导入自己的备份文件</span></div>'
+         + '<div class="btn-row" style="justify-content:center"><button class="btn primary" onclick="App.go(\'settings\')">去设置课表</button></div></div>';
+      return h;
+    }
+    h += '<div class="card"><div class="empty-state">'+(wt==='exam'?'考试周，没有常规课程':'今天没有课')+'<br>全员默认记为出勤</div></div>';
+    return h;
+  }
+
+  /* 今日汇总 */
+  var totalSlots = 0, badSlots = 0;
+  info.courses.forEach(function(c){
+    totalSlots++;
+    if(getAtt(ds,c.memberId,c.id) !== 'present') badSlots++;
+  });
+  h += '<div class="summary">'
+     +   '<div class="sum"><div class="v blue">'+totalSlots+'</div><div class="l">今日课次</div></div>'
+     +   '<div class="sum"><div class="v '+(badSlots?'red':'green')+'">'+badSlots+'</div><div class="l">异常记录</div></div>'
+     +   '<div class="sum"><div class="v '+(badSlots?'gray':'green')+'">'+(totalSlots-badSlots)+'</div><div class="l">正常出勤</div></div>'
+     + '</div>';
+
+  /* 按大节分块 */
+  var nP = db.config.periodNames.length;
+  for(var p=1; p<=nP; p++){
+    var items = [];
+    db.members.forEach(function(m){
+      var c = null;
+      for(var i=0;i<info.courses.length;i++){
+        if(info.courses[i].memberId === m.id && info.courses[i].period === p){ c = info.courses[i]; break; }
+      }
+      items.push({m:m, c:c});
+    });
+    if(!items.some(function(x){ return !!x.c; })) continue;
+
+    var has = items.filter(function(x){ return !!x.c; }).length;
+    h += '<div class="period"><div class="period-head">'
+       +   '<span class="period-name">'+esc(db.config.periodNames[p-1])+'</span>'
+       +   '<span class="period-time">'+esc(db.config.periodTimes[p-1]||'')+'</span>'
+       +   '<span class="period-meta">'+has+'/'+db.members.length+' 有课</span>'
+       + '</div><div class="pgrid">';
+
+    items.forEach(function(x){
+      if(!x.c){
+        h += '<div class="cell empty"><div class="c">空闲</div></div>';
+      } else {
+        var st = getAtt(ds, x.m.id, x.c.id);
+        var S = STATUS[st];
+        h += '<div class="cell '+S.cls+'" onclick="App.openCell(\''+ds+'\',\''+x.m.id+'\',\''+x.c.id+'\')">'
+           +   '<div class="m">'+esc(x.m.name)+'</div>'
+           +   '<div class="c">'+esc(x.c.name)+'</div>'
+           +   '<div class="badge">'+S.label+'</div>'
+           + '</div>';
+      }
+    });
+    h += '</div></div>';
+  }
+
+  h += '<div class="btn-row" style="margin-top:4px">'
+     +   '<button class="btn" onclick="App.clearDay(\''+ds+'\')">本日全部记为出勤</button>'
+     + '</div>';
+
+  return h;
+}
+
+/* ================= 渲染：在宿 ================= */
+function viewDorm(){
+  var ds = state.dormDate;
+  var wk = weekIndex(ds);
+  var wt = weekType(wk);
+  var ov = db.overrides[ds] || {};
+  var h = '';
+
+  var tagCls = ov.holiday ? 'holiday' : (ov.asDay ? 'swap' : wt);
+  var tagTxt = ov.holiday ? '假期' : (ov.asDay ? '调休' : weekTypeLabel(wt));
+  h += '<div class="datebar">'
+     +   '<button class="nav-btn" onclick="App.shiftDorm(-1)">&#8249;</button>'
+     +   '<label class="center">'
+     +     '<input type="date" value="'+ds+'" onchange="App.setDormDate(this.value)">'
+     +     '<div class="db-date">'+cnDate(ds)+' '+cnWd(ds)+'</div>'
+     +     '<div class="db-sub">第 '+wk+' 周 · <span class="tag '+tagCls+'">'+tagTxt+'</span></div>'
+     +   '</label>'
+     +   '<button class="nav-btn" onclick="App.shiftDorm(1)">&#8250;</button>'
+     + '</div>';
+
+  var rec = dormRec(ds);
+  var absentN = rec.absent.length;
+  h += '<div class="summary">'
+     +   '<div class="sum"><div class="v blue">'+db.members.length+'</div><div class="l">宿舍人数</div></div>'
+     +   '<div class="sum"><div class="v '+(absentN?'red':'green')+'">'+(db.members.length-absentN)+'</div><div class="l">在宿</div></div>'
+     +   '<div class="sum"><div class="v '+(absentN?'red':'gray')+'">'+absentN+'</div><div class="l">不在宿</div></div>'
+     + '</div>';
+
+  h += '<div class="card"><div class="card-head"><div class="card-title">今晚谁不在宿舍</div>'
+     + '<div class="card-note">点一下切换</div></div>'
+     + '<div class="chip-row">';
+  db.members.forEach(function(m){
+    var s = dormStatus(ds, m.id);
+    var isIn = (s === '在宿');
+    h += '<button class="chip '+(isIn?'in':'out')+'" onclick="App.openDorm(\''+ds+'\',\''+m.id+'\')">'
+       +   '<span class="dot"></span><span class="nm">'+esc(m.name)+'</span>'
+       +   '<span class="say">'+esc(isIn?'在宿':s)+'</span>'
+       + '</button>';
+  });
+  h += '</div>';
+  h += '<div style="font-size:12px;color:var(--text3);margin-top:10px">未标记的成员默认记为「在宿」。</div>';
+  h += '</div>';
+
+  /* 近期在宿记录 */
+  var days = semesterDays(true).slice(-14).reverse();
+  var rows = days.filter(function(d){
+    var r = db.dorm[d];
+    return r && r.absent && r.absent.length;
+  });
+  h += '<div class="card"><div class="card-head"><div class="card-title">近期缺宿记录</div>'
+     + '<div class="card-note">最近 14 天</div></div>';
+  if(!rows.length){
+    h += '<div class="empty-state">最近两周全员在宿</div>';
+  } else {
+    rows.forEach(function(d){
+      var r = db.dorm[d];
+      var names = r.absent.map(function(id){
+        var m = db.members.filter(function(x){ return x.id===id; })[0];
+        return (m?m.name:'?') + (r.reason[id]?'（'+r.reason[id]+'）':'');
+      }).join('、');
+      h += '<div class="row"><span class="rt">'+cnDate(d)+'</span><span class="rs">'+cnWd(d)+'</span>'
+         + '<span class="rr" style="color:var(--red);font-size:12.5px">'+esc(names)+'</span></div>';
+    });
+  }
+  h += '</div>';
+
+  return h;
+}
+
+/* ================= 渲染：统计 ================= */
+function viewStats(){
+  var s = computeStats();
+  var h = '';
+
+  if(!s.days){
+    return '<div class="card"><div class="empty-state">学期尚未开始，暂无统计数据</div></div>';
+  }
+
+  var attRate = rate(s.agg.present, s.agg.absent, s.agg.late);
+  var dormRate = s.dormTotal ? (1 - s.dormAbsent/s.dormTotal)*100 : null;
+
+  h += '<div class="card" style="padding-bottom:12px">'
+     + '<div class="card-head"><div class="card-title">全宿舍总览</div>'
+     + '<div class="card-note">第 1–'+s.weeks+' 周 · 截至 '+cnDate(todayStr())+'</div></div>'
+     + '<div class="summary" style="margin-bottom:0">'
+     +   '<div class="sum" style="border:0;padding:6px 4px"><div class="v green">'+pct(attRate)+'</div><div class="l">上课出勤率</div></div>'
+     +   '<div class="sum" style="border:0;padding:6px 4px"><div class="v blue">'+pct(dormRate)+'</div><div class="l">在宿率</div></div>'
+     +   '<div class="sum" style="border:0;padding:6px 4px"><div class="v red">'+s.agg.absent+'</div><div class="l">累计缺勤</div></div>'
+     + '</div>'
+     + '<div class="legend">'
+     +   '<span><i style="background:var(--green)"></i>出勤 '+s.agg.present+'</span>'
+     +   '<span><i style="background:var(--red)"></i>缺勤 '+s.agg.absent+'</span>'
+     +   '<span><i style="background:var(--orange)"></i>迟到 '+s.agg.late+'</span>'
+     +   '<span><i style="background:var(--violet)"></i>请假 '+s.agg.leave+'</span>'
+     + '</div>'
+     + '<div style="font-size:11.5px;color:var(--text3);margin-top:6px">出勤率 = 出勤 ÷（出勤 + 缺勤 + 迟到），请假不计入分母。</div>'
+     + '</div>';
+
+  /* 每人明细 */
+  h += '<div class="card"><div class="card-head"><div class="card-title">成员明细</div></div>';
+  db.members.forEach(function(m){
+    var p = s.per[m.id] || {present:0,absent:0,late:0,leave:0,total:0};
+    var r = rate(p.present, p.absent, p.late);
+    var den = p.total || 1;
+    var seg = function(v,c){ return v ? '<i style="width:'+(v/den*100)+'%;background:'+c+'"></i>' : ''; };
+    h += '<div style="margin-bottom:14px">'
+       + '<div style="display:flex;align-items:baseline;gap:7px;margin-bottom:6px">'
+       +   '<span style="font-weight:600;font-size:13.5px">'+esc(m.name)+'</span>'
+       +   '<span style="font-size:11.5px;color:var(--text3)">共 '+p.total+' 课次</span>'
+       +   '<span style="margin-left:auto;font-weight:700;font-size:15px;color:'+(r===null?'var(--text3)':(r>=95?'var(--green)':(r>=85?'var(--orange)':'var(--red)')))+'">'+pct(r)+'</span>'
+       + '</div>'
+       + '<div class="bar">'+seg(p.present,'var(--green)')+seg(p.late,'var(--orange)')+seg(p.leave,'var(--violet)')+seg(p.absent,'var(--red)')+'</div>'
+       + '<div class="legend">'
+       +   '<span>出勤 '+p.present+'</span><span>缺勤 '+p.absent+'</span>'
+       +   '<span>迟到 '+p.late+'</span><span>请假 '+p.leave+'</span>'
+       + '</div>'
+       + '</div>';
+  });
+  h += '</div>';
+
+  /* 趋势 */
+  var weeksN = s.weeks;
+  var labels = [];
+  for(var w=1; w<=weeksN; w++) labels.push(String(w));
+
+  h += '<div class="card"><div class="card-head"><div class="card-title">趋势分析</div>'
+     + '<div class="card-note">按教学周</div></div>'
+     + '<div class="seg" style="margin-bottom:12px">'
+     +   '<button class="'+(state.statTab==='attendance'?'on':'')+'" onclick="App.setStatTab(\'attendance\')">出勤率趋势</button>'
+     +   '<button class="'+(state.statTab==='dorm'?'on':'')+'" onclick="App.setStatTab(\'dorm\')">在宿趋势</button>'
+     + '</div>';
+
+  if(state.statTab === 'attendance'){
+    var allData = labels.map(function(_,i){
+      var b = s.byWeek[i+1];
+      return b ? rate(b.present, b.absent, b.late) : null;
+    });
+    var personal = computeWeeklyPersonal();
+    var series = [{name:'全宿舍', color:'#2563eb', data:allData, width:2.6, dots:true, hidden:!!state.hidden['all']}];
+    db.members.forEach(function(m,i){
+      series.push({
+        name:m.name, color:MEMBER_COLORS[i%MEMBER_COLORS.length],
+        data: labels.map(function(_,wi){
+          return (personal[m.id] && personal[m.id][wi+1] !== undefined) ? personal[m.id][wi+1] : null;
+        }),
+        width:1.5, opacity:.6, dots:false, hidden:!!state.hidden[m.id]
+      });
+    });
+
+    /* Y 轴自适应：数据集中在高位时自动放大区间，避免曲线被压平 */
+    var pool = [];
+    allData.forEach(function(v){ if(v !== null && v !== undefined) pool.push(v); });
+    db.members.forEach(function(m){
+      var pp = personal[m.id] || {};
+      Object.keys(pp).forEach(function(k){ if(pp[k] !== null && pp[k] !== undefined) pool.push(pp[k]); });
+    });
+    var yLo = 0;
+    if(pool.length){
+      yLo = Math.max(0, Math.floor((Math.min.apply(null, pool) - 3) / 5) * 5);
+      /* 让 [yLo,100] 能被 4 等分，刻度落在整数上 */
+      yLo = 100 - Math.ceil((100 - yLo) / 4) * 4;
+      if(yLo < 0) yLo = 0;
+      if(yLo > 96) yLo = 96;
+    }
+
+    h += '<div class="chart-wrap">'+lineChart(labels, series, {height:180, min:yLo})+'</div>';
+    h += '<div class="chart-legend">';
+    h += '<button class="'+(state.hidden['all']?'off':'')+'" onclick="App.toggleSeries(\'all\')"><i style="background:#2563eb"></i>全宿舍</button>';
+    db.members.forEach(function(m,i){
+      h += '<button class="'+(state.hidden[m.id]?'off':'')+'" onclick="App.toggleSeries(\''+m.id+'\')"><i style="background:'+MEMBER_COLORS[i%MEMBER_COLORS.length]+'"></i>'+esc(m.name)+'</button>';
+    });
+    h += '</div>';
+    h += '<div style="font-size:11.5px;color:var(--text3);margin-top:8px">横轴为教学周次，纵轴为当周出勤率（%）。点击图例可显示／隐藏对应曲线。</div>';
+  } else {
+    var dormData = labels.map(function(_,i){ return (s.dormByWeek[i+1]||0); });
+    var maxD = Math.max(1, Math.max.apply(null, dormData));
+    h += '<div class="chart-wrap">'
+       + barChart(labels, dormData, {height:190, max:maxD, color:'#dc2626'})
+       + '</div>';
+    h += '<div style="font-size:11.5px;color:var(--text3);margin-top:8px">横轴为教学周次，纵轴为当周累计缺宿人次（含所有人）。当前在宿率 <b style="color:var(--primary)">'+pct(dormRate)+'</b>，累计缺宿 '+s.dormAbsent+' 人次。</div>';
+  }
+  h += '</div>';
+
+  /* 缺勤排行 */
+  var list = Object.keys(s.byCourse).map(function(k){ return s.byCourse[k]; })
+    .filter(function(x){ return x.absent > 0 || x.late > 0; })
+    .sort(function(a,b){ return (b.absent*2 + b.late) - (a.absent*2 + a.late); })
+    .slice(0, 8);
+  h += '<div class="card"><div class="card-head"><div class="card-title">易缺勤课程排行</div>'
+     + '<div class="card-note">按缺勤次数</div></div>';
+  if(!list.length){
+    h += '<div class="empty-state">目前没有缺勤或迟到记录，保持住</div>';
+  } else {
+    var mx = list[0].absent || 1;
+    list.forEach(function(x,i){
+      h += '<div class="rank"><span class="rk">'+(i+1)+'</span><span class="rn">'+esc(x.name)+'</span>'
+         + '<span class="rb"><i style="width:'+Math.max(6,(x.absent/mx*100))+'%"></i></span>'
+         + '<span class="rv">'+x.absent+'</span></div>';
+    });
+    h += '<div style="font-size:11.5px;color:var(--text3);margin-top:6px">数字为缺勤次数'+(list.some(function(x){return x.late>0;})?'（含迟到，未单列）':'')+'。</div>';
+  }
+  h += '</div>';
+
+  return h;
+}
+
+function computeWeeklyPersonal(){
+  var res = {};
+  db.members.forEach(function(m){ res[m.id] = {}; });
+  semesterDays(true).forEach(function(ds){
+    var wk = weekIndex(ds);
+    var info = resolveDay(ds);
+    info.courses.forEach(function(c){
+      if(!res[c.memberId]) res[c.memberId] = {};
+      if(!res[c.memberId][wk]) res[c.memberId][wk] = {present:0,absent:0,late:0,leave:0};
+      res[c.memberId][wk][getAtt(ds,c.memberId,c.id)]++;
+    });
+  });
+  var out = {};
+  db.members.forEach(function(m){
+    out[m.id] = {};
+    Object.keys(res[m.id]||{}).forEach(function(wk){
+      var b = res[m.id][wk];
+      out[m.id][wk] = rate(b.present, b.absent, b.late);
+    });
+  });
+  return out;
+}
+
+function barChart(labels, data, opt){
+  opt = opt || {};
+  var H = opt.height || 180, W = 360;
+  var padL = 26, padR = 10, padT = 14, padB = 24;
+  var iw = W - padL - padR, ih = H - padT - padB;
+  var n = labels.length;
+  var maxV = Math.max(1, opt.max || Math.max.apply(null, data));
+  var bw = Math.min(22, iw/n*0.6);
+
+  var g = '';
+  for(var i=0;i<=4;i++){
+    var v = maxV*i/4, y = padT + ih*(1 - v/maxV);
+    g += '<line x1="'+padL+'" y1="'+y.toFixed(1)+'" x2="'+(W-padR)+'" y2="'+y.toFixed(1)+'" stroke="#eef0f3" stroke-width="1"/>';
+    g += '<text x="'+(padL-5)+'" y="'+(y+3.5).toFixed(1)+'" text-anchor="end" font-size="10" fill="#9ca3af">'+(Math.round(v*10)/10)+'</text>';
+  }
+  var bars = '';
+  var step = n > 20 ? 2 : 1;
+  data.forEach(function(v,i){
+    var cx = n<=1 ? padL+iw/2 : padL + iw*i/(n-1);
+    var hh = ih * v / maxV;
+    if(v > 0){
+      bars += '<rect x="'+(cx-bw/2).toFixed(1)+'" y="'+(padT+ih-hh).toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+Math.max(1.5,hh).toFixed(1)+'" rx="3" fill="'+(opt.color||'#2563eb')+'" opacity=".82"/>';
+    }
+  });
+  var xl = '';
+  labels.forEach(function(l,i){
+    if(i % step !== 0) return;
+    var cx = n<=1 ? padL+iw/2 : padL + iw*i/(n-1);
+    xl += '<text x="'+cx.toFixed(1)+'" y="'+(H-8)+'" text-anchor="middle" font-size="10" fill="#9ca3af">'+l+'</text>';
+  });
+  return '<svg viewBox="0 0 '+W+' '+H+'" width="100%" preserveAspectRatio="xMidYMid meet" style="display:block">'+g+bars+xl+'</svg>';
+}
+
+/* ================= 渲染：设置 ================= */
+function viewSettings(){
+  var c = db.config;
+  var h = '';
+
+  /* 学期 */
+  h += '<div class="card"><div class="card-head"><div class="card-title">学期设置</div></div>'
+     + '<div class="fgrid">'
+     +   '<div class="field"><label>开学第一周的周一</label><input type="date" value="'+c.semesterStart+'" onchange="App.setConfig(\'semesterStart\',this.value)"></div>'
+     +   '<div class="field"><label>教学周数</label><input type="number" min="1" max="30" value="'+c.teachingWeeks+'" onchange="App.setConfig(\'teachingWeeks\',+this.value)"></div>'
+     + '</div>'
+     + '<div class="field"><label>学期总周数（含考试周）</label><input type="number" min="1" max="30" value="'+c.totalWeeks+'" onchange="App.setConfig(\'totalWeeks\',+this.value)"></div>'
+     + '<div style="font-size:11.5px;color:var(--text3)">当前：第 1–'+c.teachingWeeks+' 周为教学周，第 '+(c.teachingWeeks+1)+'–'+c.totalWeeks+' 周为考试周（不排课）。</div>'
+     + '</div>';
+
+  /* 节次 */
+  h += '<div class="card"><div class="card-head"><div class="card-title">节次与时间</div>'
+     + '<div class="card-note">'+c.periodNames.length+' 大节/天</div></div>';
+  for(var i=0;i<c.periodNames.length;i++){
+    h += '<div class="fgrid" style="margin-bottom:8px">'
+       +   '<div class="field" style="margin:0"><label>第 '+(i+1)+' 大节名称</label><input value="'+esc(c.periodNames[i])+'" onchange="App.setPeriodName('+i+',this.value)"></div>'
+       +   '<div class="field" style="margin:0"><label>时间</label><input value="'+esc(c.periodTimes[i]||'')+'" onchange="App.setPeriodTime('+i+',this.value)" placeholder="08:00-09:40"></div>'
+       + '</div>';
+  }
+  h += '<div class="btn-row"><button class="btn sm" onclick="App.addPeriod()">增加一节</button>'
+     + (c.periodNames.length>1?'<button class="btn sm danger" onclick="App.removePeriod()">删除最后一节</button>':'')
+     + '</div></div>';
+
+  /* 成员 */
+  h += '<div class="card"><div class="card-head"><div class="card-title">宿舍成员</div>'
+     + '<div class="card-note">'+db.members.length+' 人 · 点名字可改</div></div>';
+  db.members.forEach(function(m,i){
+    var cnt = db.courses.filter(function(x){ return x.memberId===m.id; }).length;
+    h += '<div class="row">'
+       +   '<span style="width:10px;height:10px;border-radius:50%;background:'+m.color+';display:block;flex:none"></span>'
+       +   '<input value="'+esc(m.name)+'" onchange="App.renameMember(\''+m.id+'\',this.value)" style="flex:1;border:0;border-bottom:1px dashed #d1d5db;background:none;font-size:13.5px;font-weight:600;padding:2px 0;min-width:0;border-radius:0">'
+       +   '<span class="rs" style="font-size:11.5px;color:var(--text3);flex:none">'+cnt+' 门课</span>'
+       +   '<button class="btn sm danger" onclick="App.delMember(\''+m.id+'\')">删</button>'
+       + '</div>';
+  });
+  h += '<div class="btn-row" style="margin-top:10px"><button class="btn sm" onclick="App.addMember()">添加成员</button></div></div>';
+
+  /* 课表 */
+  h += '<div class="card"><div class="card-head"><div class="card-title">课表管理</div>'
+     + '<div class="card-note">'+db.courses.length+' 条</div></div>';
+  var byMember = {};
+  db.members.forEach(function(m){ byMember[m.id] = []; });
+  db.courses.forEach(function(x){ if(byMember[x.memberId]) byMember[x.memberId].push(x); });
+
+  db.members.forEach(function(m){
+    var list = byMember[m.id] || [];
+    h += '<div style="margin-top:6px">'
+       + '<div style="font-size:13px;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:6px">'
+       +   '<span>'+esc(m.name)+'<span style="font-weight:400;color:var(--text3);font-size:11.5px"> · '+list.length+' 门</span></span>'
+       +   ((list.length && db.members.length>1)
+              ? '<button class="btn sm" style="margin-left:auto;font-size:11px;padding:3px 9px" onclick="App.copyCourses(\''+m.id+'\')">复制给全宿舍</button>'
+              : '')
+       + '</div>';
+    if(!list.length){ h += '<div style="font-size:12.5px;color:var(--text3);padding:6px 0">还没有课程</div>'; }
+    list.sort(function(a,b){ return a.day-b.day || a.period-b.period; }).forEach(function(x){
+      h += '<div class="row">'
+         +   '<span class="rt" style="font-size:12.5px;width:34px;flex:none;font-weight:500;color:var(--text2)">周'+WD[x.day-1]+'</span>'
+         +   '<span style="font-size:12.5px;width:52px;flex:none;color:var(--text2)">'+esc(db.config.periodNames[x.period-1]||('第'+x.period+'节'))+'</span>'
+         +   '<span style="font-size:12.5px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(x.name)+'</span>'
+         +   '<span class="rs" style="font-size:11px;color:var(--text3);flex:none">'+weekRangeLabel(x)+'</span>'
+         +   '<button class="btn sm danger" onclick="App.delCourse(\''+x.id+'\')">删</button>'
+         + '</div>';
+    });
+    h += '<div style="margin:6px 0 10px"><button class="btn sm" onclick="App.addCourse(\''+m.id+'\')">+ 添加课程</button></div>'
+       + '</div>';
+  });
+  h += '</div>';
+
+  /* 日期例外 */
+  var oks = Object.keys(db.overrides).sort();
+  h += '<div class="card"><div class="card-head"><div class="card-title">假期与调休</div>'
+     + '<div class="card-note">'+oks.length+' 条</div></div>'
+     + '<div style="font-size:11.5px;color:var(--text3);margin-bottom:8px">优先级高于日常课表。「放假」= 当天无课；「调休补课」= 当天按指定星期的课表上课。</div>';
+  oks.forEach(function(k){
+    var o = db.overrides[k];
+    var desc = o.holiday ? '放假' : (o.asDay ? '调休补课' : '调整');
+    var sub = o.note || (o.asDay ? ('按周'+WD[o.asDay-1]+'课表') : '');
+    h += '<div class="row"><span class="rt" style="font-size:12.5px">'+cnDate(k)+' '+cnWd(k)+'</span>'
+       + '<span class="rs" style="font-size:12px">'+desc+(sub ? ' · '+esc(sub) : '')+'</span>'
+       + '<span class="rr"><button class="btn sm danger" onclick="App.delOverride(\''+k+'\')">删</button></span></div>';
+  });
+  if(!oks.length) h += '<div style="font-size:12.5px;color:var(--text3);padding:6px 0">暂无例外安排</div>';
+  h += '<div class="btn-row" style="margin-top:10px">'
+     +   '<button class="btn sm" onclick="App.addOverride(\'holiday\')">+ 添加放假</button>'
+     +   '<button class="btn sm" onclick="App.addOverride(\'swap\')">+ 添加调休补课</button>'
+     + '</div></div>';
+
+  /* 数据 */
+  var lb = lsGet(BACKUP_KEY);
+  var lbTxt = lb ? new Date(+lb).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '从未备份';
+  h += '<div class="card"><div class="card-head"><div class="card-title">数据</div>'
+     + '<div class="card-note">上次导出：'+lbTxt+'</div></div>'
+     + '<div style="font-size:12px;color:var(--text3);margin-bottom:10px">'
+     +   '考勤数据保存在本机浏览器里（localStorage）。换设备、清理浏览器数据前请先导出备份文件。'
+     +   (LS_OK ? '' : '<br><b style="color:var(--red)">当前环境无法本地存储，数据仅保存在内存中，关闭页面即丢失。请通过 http 服务打开。</b>')
+     + '</div>'
+     + '<div class="btn-row">'
+     +   '<button class="btn primary" onclick="App.exportData()">导出备份 JSON</button>'
+     +   '<button class="btn" onclick="App.importData()">导入备份</button>'
+     +   '<button class="btn" onclick="App.exportCsv()">导出出勤明细 CSV</button>'
+     +   '<button class="btn danger" onclick="App.resetAll()">清空所有数据</button>'
+     + '</div>'
+     + '<input type="file" id="importFile" accept=".json,application/json" style="display:none" onchange="App.onImportFile(this)">'
+     + '</div>';
+
+  h += '<div style="text-align:center;font-size:11.5px;color:var(--text3);padding:6px 0 4px;line-height:1.7">'
+     +   '宿舍出勤统计 · v1<br>' + offlineLabel()
+     + '</div>';
+
+  return h;
+}
+
+function weekRangeLabel(x){
+  var t = x.type==='odd' ? '单周' : (x.type==='even' ? '双周' : '');
+  if(x.from===1 && x.to===17 && !t) return '1-17周';
+  return x.from+'-'+x.to+'周'+(t?('·'+t):'');
+}
+
+function esc(s){
+  return String(s===undefined || s===null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ================= 主渲染 ================= */
+var VIEWS = {today:viewToday, dorm:viewDorm, stats:viewStats, settings:viewSettings};
+
+function render(){
+  renderTop();
+  var main = document.getElementById('view');
+  main.innerHTML = VIEWS[state.tab]();
+  renderTabs();
+  window.scrollTo(0,0);
+}
+
+/* ================= Sheet ================= */
+function openSheet(html){
+  var root = document.getElementById('sheetRoot');
+  root.innerHTML = '<div class="mask" onclick="App.closeSheet()"></div>'
+    + '<div class="sheet" id="sheetEl"><div class="sheet-grip"></div>' + html + '</div>';
+  root.style.pointerEvents = 'auto';
+  requestAnimationFrame(function(){
+    root.querySelector('.mask').classList.add('on');
+    document.getElementById('sheetEl').classList.add('on');
+  });
+}
+function closeSheet(){
+  var root = document.getElementById('sheetRoot');
+  var m = root.querySelector('.mask'), s = document.getElementById('sheetEl');
+  if(m) m.classList.remove('on');
+  if(s) s.classList.remove('on');
+  setTimeout(function(){ root.innerHTML = ''; root.style.pointerEvents = 'none'; }, 220);
+}
+
+var sheetCtx = {};
+
+/* ================= 交互 ================= */
+var App = {
+  go:function(k){ state.tab = k; if(location.hash !== '#'+k){ location.hash = k; } render(); },
+  setStatTab:function(k){ state.statTab = k; render(); },
+  shiftDay:function(n){ state.date = fmt(addDays(parseD(state.date), n)); render(); },
+  setDate:function(v){ if(!v) return; state.date = v; render(); },
+  shiftDorm:function(n){ state.dormDate = fmt(addDays(parseD(state.dormDate), n)); render(); },
+  setDormDate:function(v){ if(!v) return; state.dormDate = v; render(); },
+
+  openCell:function(ds, mid, cid){
+    var m = db.members.filter(function(x){ return x.id===mid; })[0] || {name:'?'};
+    var c = db.courses.filter(function(x){ return x.id===cid; })[0] || {name:''};
+    var all = resolveDay(ds).courses;
+    for(var i=0;i<all.length;i++){
+      if(all[i].id === cid && all[i].memberId === mid) c = all[i];
+    }
+    var cur = getAtt(ds, mid, cid);
+    sheetCtx = {ds:ds, mid:mid, cid:cid};
+    var wk = weekIndex(ds);
+    var html = '<h3>'+esc(m.name)+' · '+esc(c.name)+'</h3>'
+      + '<div class="sst">'+cnDate(ds)+' '+cnWd(ds)+' · 第 '+wk+' 周 · '
+      + esc(db.config.periodNames[c.period-1]||'')+(c.room?(' · '+esc(c.room)):'')+'</div>'
+      + '<div class="sheet-opts">';
+    ['present','absent','late','leave'].forEach(function(k){
+      html += '<button class="o-'+k+(cur===k?' sel':'')+'" onclick="App.setAtt(\''+k+'\')">'
+            + '<i></i>'+STATUS[k].label+'</button>';
+    });
+    html += '</div><button class="sheet-close" onclick="App.closeSheet()">取消</button>';
+    openSheet(html);
+  },
+  setAtt:function(k){
+    setAtt(sheetCtx.ds, sheetCtx.mid, sheetCtx.cid, k);
+    closeSheet();
+    render();
+  },
+  clearDay:function(ds){
+    var info = resolveDay(ds);
+    info.courses.forEach(function(c){ delete db.attendance[attKey(ds, c.memberId, c.id)]; });
+    saveDb(); render();
+  },
+
+  openDorm:function(ds, mid){
+    var m = db.members.filter(function(x){ return x.id===mid; })[0] || {name:'?'};
+    var cur = dormStatus(ds, mid);
+    sheetCtx = {ds:ds, mid:mid, mode:'dorm'};
+    var opts = ['在宿','回家','外出','请假'];
+    var html = '<h3>'+esc(m.name)+'</h3><div class="sst">'+cnDate(ds)+' '+cnWd(ds)+' 晚间</div>'
+      + '<div class="sheet-opts">';
+    opts.forEach(function(o){
+      var sel = (cur===o);
+      html += '<button class="'+(o==='在宿'?'o-present':'o-absent')+(sel?' sel':'')+'" onclick="App.setDorm(\''+o+'\')"><i></i>'+o+'</button>';
+    });
+    html += '</div><button class="sheet-close" onclick="App.closeSheet()">取消</button>';
+    openSheet(html);
+  },
+  setDorm:function(v){
+    setDorm(sheetCtx.ds, sheetCtx.mid, v);
+    closeSheet(); render();
+  },
+
+  toggleSeries:function(k){ state.hidden[k] = !state.hidden[k]; render(); },
+
+  /* ---- 设置类 ---- */
+  setConfig:function(k,v){
+    if(k==='teachingWeeks' || k==='totalWeeks') v = Math.max(1, Math.min(30, v|0));
+    db.config[k] = v;
+    if(db.config.totalWeeks < db.config.teachingWeeks) db.config.totalWeeks = db.config.teachingWeeks;
+    saveDb(); render();
+  },
+  setPeriodName:function(i,v){ db.config.periodNames[i] = v || ('第'+(i+1)+'节'); saveDb(); render(); },
+  setPeriodTime:function(i,v){ db.config.periodTimes[i] = v; saveDb(); render(); },
+  addPeriod:function(){ db.config.periodNames.push('第'+(db.config.periodNames.length+1)+'节'); db.config.periodTimes.push(''); saveDb(); render(); },
+  removePeriod:function(){
+    if(db.config.periodNames.length <= 1) return;
+    if(!confirm('删除最后一节？该节次上的课程也会一起被删除。')) return;
+    var idx = db.config.periodNames.length;
+    db.courses = db.courses.filter(function(c){ return c.period !== idx; });
+    db.config.periodNames.pop(); db.config.periodTimes.pop();
+    saveDb(); render();
+  },
+  renameMember:function(id,v){
+    var m = db.members.filter(function(x){ return x.id===id; })[0];
+    if(m){ m.name = v.trim() || m.name; saveDb(); render(); }
+  },
+  delMember:function(id){
+    var m = db.members.filter(function(x){ return x.id===id; })[0];
+    if(!m) return;
+    if(db.members.length <= 1){ alert('至少要保留一位成员'); return; }
+    if(!confirm('删除成员「'+m.name+'」？\n会同时删除 ta 的课表与考勤记录，不可撤销。')) return;
+    db.members = db.members.filter(function(x){ return x.id !== id; });
+    db.courses = db.courses.filter(function(c){ return c.memberId !== id; });
+    Object.keys(db.attendance).forEach(function(k){
+      if(k.split('|')[1] === id) delete db.attendance[k];
+    });
+    Object.keys(db.dorm).forEach(function(d){
+      var r = db.dorm[d];
+      r.absent = (r.absent || []).filter(function(x){ return x !== id; });
+      if(r.reason) delete r.reason[id];
+      if(!r.absent.length) delete db.dorm[d];
+    });
+    saveDb(); render();
+  },
+  addMember:function(){
+    if(db.members.length >= 12) return;
+    var n = db.members.length + 1;
+    db.members.push({id:'m'+Date.now(), name:'成员'+n, color:MEMBER_COLORS[db.members.length%MEMBER_COLORS.length]});
+    saveDb(); render();
+  },
+  addCourse:function(mid){
+    var m = db.members.filter(function(x){ return x.id===mid; })[0] || {name:''};
+    sheetCtx = {mode:'course', mid:mid};
+    openSheet(
+      '<h3>为 '+esc(m.name)+' 添加课程</h3><div class="sst">课程按周重复，可限定周次范围</div>'
+      + '<div class="field"><label>课程名称</label><input id="nc_name" placeholder="如：高等数学"></div>'
+      + '<div class="fgrid">'
+      +   '<div class="field"><label>星期</label><select id="nc_day">'
+      +     WD.map(function(w,i){ return '<option value="'+(i+1)+'">周'+w+'</option>'; }).join('')
+      +   '</select></div>'
+      +   '<div class="field"><label>第几大节</label><select id="nc_period">'
+      +     db.config.periodNames.map(function(p,i){ return '<option value="'+(i+1)+'">'+esc(p)+' '+(db.config.periodTimes[i]||'')+'</option>'; }).join('')
+      +   '</select></div>'
+      + '</div>'
+      + '<div class="field"><label>教室（可选）</label><input id="nc_room" placeholder="如：A座101"></div>'
+      + '<div class="fgrid3">'
+      +   '<div class="field"><label>起始周</label><input type="number" id="nc_from" value="1" min="1"></div>'
+      +   '<div class="field"><label>结束周</label><input type="number" id="nc_to" value="'+db.config.teachingWeeks+'" min="1"></div>'
+      +   '<div class="field"><label>周次</label><select id="nc_type"><option value="all">每周</option><option value="odd">单周</option><option value="even">双周</option></select></div>'
+      + '</div>'
+      + '<button class="btn primary" style="width:100%;padding:12px" onclick="App.saveCourse()">保存</button>'
+      + '<button class="sheet-close" onclick="App.closeSheet()">取消</button>'
+    );
+  },
+  saveCourse:function(){
+    var name = (document.getElementById('nc_name').value||'').trim();
+    if(!name){ alert('请填写课程名称'); return; }
+    var c = {
+      id:'c'+Date.now()+Math.floor(Math.random()*1000),
+      memberId:sheetCtx.mid,
+      name:name,
+      day:+document.getElementById('nc_day').value,
+      period:+document.getElementById('nc_period').value,
+      room:(document.getElementById('nc_room').value||'').trim(),
+      from:Math.max(1, +document.getElementById('nc_from').value||1),
+      to:Math.max(1, +document.getElementById('nc_to').value||db.config.teachingWeeks),
+      type:document.getElementById('nc_type').value
+    };
+    db.courses.push(c);
+    saveDb(); closeSheet(); render();
+  },
+  delCourse:function(id){
+    if(!confirm('确定删除这条课程？')) return;
+    db.courses = db.courses.filter(function(c){ return c.id !== id; });
+    saveDb(); render();
+  },
+  copyCourses:function(fromId){
+    var from = db.members.filter(function(x){ return x.id===fromId; })[0];
+    if(!from) return;
+    var src = db.courses.filter(function(c){ return c.memberId===fromId; });
+    if(!src.length){ alert('这位成员还没有课程，没有可复制的内容'); return; }
+    var others = db.members.filter(function(x){ return x.id!==fromId; });
+    if(!others.length) return;
+    var desc = others.map(function(x){
+      var n = db.courses.filter(function(c){ return c.memberId===x.id; }).length;
+      return x.name + '（现有 '+n+' 门）';
+    }).join('、');
+    if(!confirm('把「'+from.name+'」的 '+src.length+' 门课覆盖给：\n\n'+desc+'\n\n对方已有课程会被全部替换，确定？')) return;
+    db.courses = db.courses.filter(function(c){ return c.memberId===fromId; });
+    var stamp = Date.now();
+    others.forEach(function(m, mi){
+      src.forEach(function(c, ci){
+        db.courses.push({
+          id:'c'+stamp+'_'+mi+'_'+ci,
+          memberId:m.id, name:c.name, room:c.room,
+          day:c.day, period:c.period, from:c.from, to:c.to, type:c.type
+        });
+      });
+    });
+    saveDb(); render();
+    alert('已把「'+from.name+'」的课表复制给其他 '+others.length+' 人');
+  },
+
+  addOverride:function(kind){
+    var ds = prompt('请输入日期（格式 2026-09-20）：', todayStr());
+    if(!ds || !/^\d{4}-\d{2}-\d{2}$/.test(ds)) return;
+    if(kind === 'holiday'){
+      db.overrides[ds] = {holiday:true, note:'放假'};
+    } else {
+      var w = prompt('这天按星期几的课表上课？（1=周一 … 7=周日）', '1');
+      var n = parseInt(w,10);
+      if(!(n>=1 && n<=7)) return;
+      var nat = weekIndex(ds);
+      var wkStr = prompt('用第几周的课表？\n（默认当周第 '+nat+' 周；若是补别周的课，填那一周的周次）', String(nat));
+      var k = parseInt(wkStr,10);
+      var ov = {asDay:n, note:'补周'+WD[n-1]+'课'};
+      if(k >= 1 && k !== nat){
+        ov.week = k;
+        ov.note = '补第'+k+'周周'+WD[n-1]+'课';
+      }
+      db.overrides[ds] = ov;
+    }
+    saveDb(); render();
+  },
+  delOverride:function(k){ delete db.overrides[k]; saveDb(); render(); },
+
+  /* ---- 数据 ---- */
+  exportData:function(){
+    var blob = new Blob([JSON.stringify(db, null, 2)], {type:'application/json'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '宿舍出勤备份_'+todayStr()+'.json';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
+    lsSet(BACKUP_KEY, String(Date.now()));
+    render();
+  },
+  importData:function(){ document.getElementById('importFile').click(); },
+  onImportFile:function(input){
+    var f = input.files && input.files[0];
+    if(!f) return;
+    var r = new FileReader();
+    r.onload = function(){
+      try{
+        var obj = JSON.parse(r.result);
+        if(!obj || !obj.config || !obj.members) throw new Error('格式不正确');
+        if(!confirm('导入将覆盖当前全部数据，确定继续？')) return;
+        db = obj; normalize(); saveDb(); render();
+        alert('导入成功');
+      }catch(e){ alert('导入失败：'+e.message); }
+    };
+    r.readAsText(f);
+    input.value = '';
+  },
+  exportCsv:function(){
+    var rows = [['日期','星期','周次','成员','课程','节次','状态']];
+    semesterDays(true).forEach(function(ds){
+      var wk = weekIndex(ds);
+      var info = resolveDay(ds);
+      info.courses.forEach(function(c){
+        rows.push([ds, '周'+WD[isoWd(parseD(ds))-1], wk, nameOf(c.memberId), c.name,
+                   db.config.periodNames[c.period-1]||'', STATUS[getAtt(ds,c.memberId,c.id)].label]);
+      });
+    });
+    var csv = '\ufeff' + rows.map(function(r){
+      return r.map(function(x){ return '"'+String(x).replace(/"/g,'""')+'"'; }).join(',');
+    }).join('\r\n');
+    var blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '出勤明细_'+todayStr()+'.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  },
+  resetAll:function(){
+    if(!confirm('将清空所有考勤、在宿记录、课表与成员，恢复为初始状态。此操作不可撤销，确定？')) return;
+    if(!confirm('再确认一次：真的要清空吗？')) return;
+    db = seedDb(); saveDb(); render();
+  }
+};
+function nameOf(id){
+  var m = db.members.filter(function(x){ return x.id===id; })[0];
+  return m ? m.name : id;
+}
+
+window.App = App;
+
+/* ================= PWA / 离线可用 ================= */
+var PWA = { supported:false, registered:false, state:'pending', error:'' };
+
+function initPWA(){
+  if(location.protocol === 'file:'){
+    PWA.state = 'file';           // 本地双击打开时不支持 Service Worker，不影响使用
+    return;
+  }
+  if(!('serviceWorker' in navigator)){
+    PWA.state = 'unsupported';
+    return;
+  }
+  PWA.supported = true;
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('sw.js', {scope:'./'}).then(function(){
+      PWA.registered = true;
+      PWA.state = 'on';
+      render();
+    })['catch'](function(err){
+      PWA.error = String((err && err.message) || err);
+      PWA.state = 'failed';
+      render();
+    });
+  });
+}
+
+function offlineLabel(){
+  switch(PWA.state){
+    case 'on':          return '离线模式：已启用，断网也能记考勤';
+    case 'file':        return '离线模式：未启用（以文件方式打开时不支持；部署成网址后自动启用）';
+    case 'unsupported': return '离线模式：当前浏览器不支持';
+    case 'failed':      return '离线模式：注册失败' + (PWA.error ? '（'+esc(PWA.error)+'）' : '');
+    default:            return '离线模式：正在启用…';
+  }
+}
+
+/* ================= 启动 ================= */
+function hashTab(){ return (location.hash || '').replace('#',''); }
+loadDb();
+initPWA();
+if(VIEWS[hashTab()]) state.tab = hashTab();
+window.addEventListener('hashchange', function(){
+  var k = hashTab();
+  if(VIEWS[k] && state.tab !== k){ state.tab = k; render(); }
+});
+render();
+
+})();
+</script>
+</body>
+</html>
