@@ -4,7 +4,8 @@
 宿舍出勤统计 · 提交前门禁检查
 ================================================================
 用法：
-    python check.py          # 全部检查
+    python check.py                 # 全部检查（退出码 0=通过 / 1=有失败项）
+    python check.py --install-hook  # 安装为 git pre-commit 钩子，之后每次提交自动跑
 退出码：
     0 = 无失败项（可能有警告）
     1 = 存在失败项（不应提交）
@@ -382,8 +383,65 @@ def check_secrets():
         add('PASS', '泄漏', '无密钥 / 绝对路径 / 邮箱 / 手机号；文件体积正常')
 
 
+# ------------------------------------------------------------ 安装 git 钩子
+HOOK_SH = '''#!/bin/sh
+# ============================================================
+# 宿舍出勤统计 · 提交前门禁（由 check.py --install-hook 生成）
+# 临时绕过（不推荐）：git commit --no-verify
+# ============================================================
+
+if [ ! -f check.py ]; then
+    echo "[gate] 未找到 check.py，跳过门禁检查"
+    exit 0
+fi
+
+PY=""
+if command -v python >/dev/null 2>&1; then
+    PY="python"
+elif command -v python3 >/dev/null 2>&1; then
+    PY="python3"
+elif [ -x "$HOME/.workbuddy/binaries/python/versions/3.13.12/python.exe" ]; then
+    PY="$HOME/.workbuddy/binaries/python/versions/3.13.12/python.exe"
+fi
+
+if [ -z "$PY" ]; then
+    echo "[gate] 找不到 python 解释器，跳过门禁检查"
+    exit 0
+fi
+
+echo "[gate] 正在执行提交前检查..."
+if ! "$PY" check.py; then
+    echo ""
+    echo "[gate] 检查未通过，提交已被阻止。"
+    echo "[gate] 修复后重新提交；确需绕过请用 git commit --no-verify"
+    exit 1
+fi
+exit 0
+'''
+
+
+def install_hook():
+    hooks = os.path.join(ROOT, '.git', 'hooks')
+    if not os.path.isdir(hooks):
+        print('未找到 .git/hooks 目录，可能不是 git 仓库，已跳过。')
+        return 1
+    p = os.path.join(hooks, 'pre-commit')
+    existed = os.path.exists(p)
+    io.open(p, 'w', encoding='utf-8', newline='\n').write(HOOK_SH)
+    try:
+        os.chmod(p, 0o755)
+    except Exception:
+        pass
+    print('%s pre-commit 钩子：%s' % ('已覆盖' if existed else '已安装', p))
+    print('之后每次 git commit 都会先跑本门禁；绕过用 git commit --no-verify')
+    return 0
+
+
 # ---------------------------------------------------------------- main
-def main():
+def main(argv=None):
+    argv = argv or []
+    if '--install-hook' in argv:
+        return install_hook()
     print('=' * 64)
     print(' 宿舍出勤统计 · 提交前门禁检查')
     print(' 目标目录：%s' % ROOT)
@@ -417,4 +475,4 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
