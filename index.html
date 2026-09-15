@@ -75,9 +75,10 @@ button,input,select{font-family:inherit;color:inherit;}
 .cell .m{font-size:10.5px;color:var(--text3);margin-bottom:3px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .cell .c{font-size:12px;font-weight:600;line-height:1.25;text-align:center;word-break:break-all;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:30px;}
 .cell .badge{margin-top:auto;font-size:10px;padding:1px 7px;border-radius:20px;font-weight:600;}
-.cell.empty{background:#fafbfc;border-style:dashed;justify-content:center;cursor:default;}
-.cell.empty .c{font-weight:400;font-size:11px;color:var(--text3);min-height:0;}
-.cell.empty:active{transform:none;}
+.cell.empty{background:#fafbfc;border-style:dashed;cursor:pointer;}
+.cell.empty .c{font-weight:600;font-size:15px;color:#c3c8d1;min-height:0;line-height:1.2;}
+.cell.empty:active{background:#f3f4f6;transform:scale(.975);}
+.period.allfree .period-head{opacity:.5;}
 .cell.st-present{background:var(--green-bg);border-color:var(--green-line);}
 .cell.st-present .badge{background:#dcfce7;color:var(--green);}
 .cell.st-absent{background:var(--red-bg);border-color:var(--red-line);}
@@ -149,6 +150,8 @@ button,input,select{font-family:inherit;color:inherit;}
 .field input:focus,.field select:focus{outline:2px solid var(--primary-bg);border-color:var(--primary);}
 .fgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:9px;}
 .fgrid3{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;}
+.chk{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);margin:4px 0 12px;cursor:pointer;}
+.chk input{width:17px;height:17px;accent-color:var(--primary);flex:none;}
 
 /* ---------- Segmented ---------- */
 .seg{display:flex;background:#f3f4f6;border-radius:10px;padding:3px;gap:3px;}
@@ -681,7 +684,7 @@ function viewToday(){
      +   '<div class="sum"><div class="v '+(badSlots?'gray':'green')+'">'+(totalSlots-badSlots)+'</div><div class="l">正常出勤</div></div>'
      + '</div>';
 
-  /* 按大节分块 */
+  /* 按大节分块：始终显示全部大节，空位可直接点击加课 */
   var nP = db.config.periodNames.length;
   for(var p=1; p<=nP; p++){
     var items = [];
@@ -692,18 +695,21 @@ function viewToday(){
       }
       items.push({m:m, c:c});
     });
-    if(!items.some(function(x){ return !!x.c; })) continue;
 
     var has = items.filter(function(x){ return !!x.c; }).length;
-    h += '<div class="period"><div class="period-head">'
+    h += '<div class="period'+(has ? '' : ' allfree')+'"><div class="period-head">'
        +   '<span class="period-name">'+esc(db.config.periodNames[p-1])+'</span>'
        +   '<span class="period-time">'+esc(db.config.periodTimes[p-1]||'')+'</span>'
-       +   '<span class="period-meta">'+has+'/'+db.members.length+' 有课</span>'
+       +   '<span class="period-meta">'+(has ? (has+'/'+db.members.length+' 有课') : '全宿舍空闲')+'</span>'
        + '</div><div class="pgrid">';
 
     items.forEach(function(x){
       if(!x.c){
-        h += '<div class="cell empty"><div class="c">空闲</div></div>';
+        h += '<div class="cell empty" onclick="App.addCourseAt(\''+ds+'\',\''+x.m.id+'\','+p+')">'
+           +   '<div class="m">'+esc(x.m.name)+'</div>'
+           +   '<div class="c">＋</div>'
+           +   '<div class="badge" style="background:#f3f4f6;color:#9ca3af">添加</div>'
+           + '</div>';
       } else {
         var st = getAtt(ds, x.m.id, x.c.id);
         var S = STATUS[st];
@@ -1041,7 +1047,7 @@ function viewSettings(){
        + '<div style="font-size:13px;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:6px">'
        +   '<span>'+esc(m.name)+'<span style="font-weight:400;color:var(--text3);font-size:11.5px"> · '+list.length+' 门</span></span>'
        +   ((list.length && db.members.length>1)
-              ? '<button class="btn sm" style="margin-left:auto;font-size:11px;padding:3px 9px" onclick="App.copyCourses(\''+m.id+'\')">复制给全宿舍</button>'
+              ? '<button class="btn sm" style="margin-left:auto;font-size:11px;padding:3px 9px" onclick="App.copyCourses(\''+m.id+'\')">复制给…</button>'
               : '')
        + '</div>';
     if(!list.length){ h += '<div style="font-size:12.5px;color:var(--text3);padding:6px 0">还没有课程</div>'; }
@@ -1117,12 +1123,13 @@ function esc(s){
 /* ================= 主渲染 ================= */
 var VIEWS = {today:viewToday, dorm:viewDorm, stats:viewStats, settings:viewSettings};
 
-function render(){
+function render(keepScroll){
+  var y = keepScroll ? window.scrollY : 0;
   renderTop();
   var main = document.getElementById('view');
   main.innerHTML = VIEWS[state.tab]();
   renderTabs();
-  window.scrollTo(0,0);
+  window.scrollTo(0, keepScroll ? y : 0);
 }
 
 /* ================= Sheet ================= */
@@ -1149,7 +1156,7 @@ var sheetCtx = {};
 /* ================= 交互 ================= */
 var App = {
   go:function(k){ state.tab = k; if(location.hash !== '#'+k){ location.hash = k; } render(); },
-  setStatTab:function(k){ state.statTab = k; render(); },
+  setStatTab:function(k){ state.statTab = k; render(true); },
   shiftDay:function(n){ state.date = fmt(addDays(parseD(state.date), n)); render(); },
   setDate:function(v){ if(!v) return; state.date = v; render(); },
   shiftDorm:function(n){ state.dormDate = fmt(addDays(parseD(state.dormDate), n)); render(); },
@@ -1179,12 +1186,12 @@ var App = {
   setAtt:function(k){
     setAtt(sheetCtx.ds, sheetCtx.mid, sheetCtx.cid, k);
     closeSheet();
-    render();
+    render(true);
   },
   clearDay:function(ds){
     var info = resolveDay(ds);
     info.courses.forEach(function(c){ delete db.attendance[attKey(ds, c.memberId, c.id)]; });
-    saveDb(); render();
+    saveDb(); render(true);
   },
 
   openDorm:function(ds, mid){
@@ -1203,32 +1210,32 @@ var App = {
   },
   setDorm:function(v){
     setDorm(sheetCtx.ds, sheetCtx.mid, v);
-    closeSheet(); render();
+    closeSheet(); render(true);
   },
 
-  toggleSeries:function(k){ state.hidden[k] = !state.hidden[k]; render(); },
+  toggleSeries:function(k){ state.hidden[k] = !state.hidden[k]; render(true); },
 
   /* ---- 设置类 ---- */
   setConfig:function(k,v){
     if(k==='teachingWeeks' || k==='totalWeeks') v = Math.max(1, Math.min(30, v|0));
     db.config[k] = v;
     if(db.config.totalWeeks < db.config.teachingWeeks) db.config.totalWeeks = db.config.teachingWeeks;
-    saveDb(); render();
+    saveDb(); render(true);
   },
-  setPeriodName:function(i,v){ db.config.periodNames[i] = v || ('第'+(i+1)+'节'); saveDb(); render(); },
-  setPeriodTime:function(i,v){ db.config.periodTimes[i] = v; saveDb(); render(); },
-  addPeriod:function(){ db.config.periodNames.push('第'+(db.config.periodNames.length+1)+'节'); db.config.periodTimes.push(''); saveDb(); render(); },
+  setPeriodName:function(i,v){ db.config.periodNames[i] = v || ('第'+(i+1)+'节'); saveDb(); render(true); },
+  setPeriodTime:function(i,v){ db.config.periodTimes[i] = v; saveDb(); render(true); },
+  addPeriod:function(){ db.config.periodNames.push('第'+(db.config.periodNames.length+1)+'节'); db.config.periodTimes.push(''); saveDb(); render(true); },
   removePeriod:function(){
     if(db.config.periodNames.length <= 1) return;
     if(!confirm('删除最后一节？该节次上的课程也会一起被删除。')) return;
     var idx = db.config.periodNames.length;
     db.courses = db.courses.filter(function(c){ return c.period !== idx; });
     db.config.periodNames.pop(); db.config.periodTimes.pop();
-    saveDb(); render();
+    saveDb(); render(true);
   },
   renameMember:function(id,v){
     var m = db.members.filter(function(x){ return x.id===id; })[0];
-    if(m){ m.name = v.trim() || m.name; saveDb(); render(); }
+    if(m){ m.name = v.trim() || m.name; saveDb(); render(true); }
   },
   delMember:function(id){
     var m = db.members.filter(function(x){ return x.id===id; })[0];
@@ -1246,85 +1253,164 @@ var App = {
       if(r.reason) delete r.reason[id];
       if(!r.absent.length) delete db.dorm[d];
     });
-    saveDb(); render();
+    saveDb(); render(true);
   },
   addMember:function(){
     if(db.members.length >= 12) return;
     var n = db.members.length + 1;
     db.members.push({id:'m'+Date.now(), name:'成员'+n, color:MEMBER_COLORS[db.members.length%MEMBER_COLORS.length]});
-    saveDb(); render();
+    saveDb(); render(true);
   },
-  addCourse:function(mid){
+  /* 从「今日」页空白格子进入：预填成员、星期、起始大节 */
+  addCourseAt:function(ds, mid, period){
+    var info = resolveDay(ds);
+    App.addCourse(mid, {day:info.day, from:period, to:period, date:ds});
+  },
+
+  addCourse:function(mid, pre){
+    pre = pre || {};
     var m = db.members.filter(function(x){ return x.id===mid; })[0] || {name:''};
+    var daySel = pre.day || isoWd(parseD(pre.date || todayStr()));
+    var pFrom = pre.from || 1;
+    var pTo = pre.to || pFrom;
     sheetCtx = {mode:'course', mid:mid};
+    var optDay = WD.map(function(w,i){
+      return '<option value="'+(i+1)+'"'+((i+1)===daySel?' selected':'')+'>周'+w+'</option>';
+    }).join('');
+    function optP(sel){
+      return db.config.periodNames.map(function(p,i){
+        return '<option value="'+(i+1)+'"'+((i+1)===sel?' selected':'')+'>'+esc(p)+' '+(db.config.periodTimes[i]||'')+'</option>';
+      }).join('');
+    }
     openSheet(
-      '<h3>为 '+esc(m.name)+' 添加课程</h3><div class="sst">课程按周重复，可限定周次范围</div>'
-      + '<div class="field"><label>课程名称</label><input id="nc_name" placeholder="如：高等数学"></div>'
+      '<h3>为 '+esc(m.name)+' 添加课程</h3>'
+      + '<div class="sst">会加入<b>每周'+WD[daySel-1]+'</b>的常规课表（不是只加这一天）</div>'
+      + '<div class="field"><label>课程名称</label><input id="nc_name" placeholder="如：飞行器试验统计学"></div>'
       + '<div class="fgrid">'
-      +   '<div class="field"><label>星期</label><select id="nc_day">'
-      +     WD.map(function(w,i){ return '<option value="'+(i+1)+'">周'+w+'</option>'; }).join('')
-      +   '</select></div>'
-      +   '<div class="field"><label>第几大节</label><select id="nc_period">'
-      +     db.config.periodNames.map(function(p,i){ return '<option value="'+(i+1)+'">'+esc(p)+' '+(db.config.periodTimes[i]||'')+'</option>'; }).join('')
-      +   '</select></div>'
+      +   '<div class="field"><label>星期</label><select id="nc_day">'+optDay+'</select></div>'
+      +   '<div class="field"><label>教室（可选）</label><input id="nc_room" placeholder="如：西教学楼-西2-203"></div>'
       + '</div>'
-      + '<div class="field"><label>教室（可选）</label><input id="nc_room" placeholder="如：A座101"></div>'
+      + '<div class="fgrid">'
+      +   '<div class="field"><label>起始大节</label><select id="nc_pfrom">'+optP(pFrom)+'</select></div>'
+      +   '<div class="field"><label>结束大节（连堂）</label><select id="nc_pto">'+optP(pTo)+'</select></div>'
+      + '</div>'
       + '<div class="fgrid3">'
       +   '<div class="field"><label>起始周</label><input type="number" id="nc_from" value="1" min="1"></div>'
       +   '<div class="field"><label>结束周</label><input type="number" id="nc_to" value="'+db.config.teachingWeeks+'" min="1"></div>'
       +   '<div class="field"><label>周次</label><select id="nc_type"><option value="all">每周</option><option value="odd">单周</option><option value="even">双周</option></select></div>'
       + '</div>'
-      + '<button class="btn primary" style="width:100%;padding:12px" onclick="App.saveCourse()">保存</button>'
+      + (db.members.length > 1
+          ? '<label class="chk"><input type="checkbox" id="nc_all"><span>同时添加给其他 '+(db.members.length-1)+' 位室友</span></label>'
+          : '')
+      + '<button class="btn primary" style="width:100%;padding:12px;margin-top:2px" onclick="App.saveCourse()">保存</button>'
       + '<button class="sheet-close" onclick="App.closeSheet()">取消</button>'
     );
   },
+
   saveCourse:function(){
     var name = (document.getElementById('nc_name').value||'').trim();
     if(!name){ alert('请填写课程名称'); return; }
-    var c = {
-      id:'c'+Date.now()+Math.floor(Math.random()*1000),
-      memberId:sheetCtx.mid,
-      name:name,
-      day:+document.getElementById('nc_day').value,
-      period:+document.getElementById('nc_period').value,
-      room:(document.getElementById('nc_room').value||'').trim(),
-      from:Math.max(1, +document.getElementById('nc_from').value||1),
-      to:Math.max(1, +document.getElementById('nc_to').value||db.config.teachingWeeks),
-      type:document.getElementById('nc_type').value
-    };
-    db.courses.push(c);
-    saveDb(); closeSheet(); render();
+    var day   = +document.getElementById('nc_day').value;
+    var pFrom = +document.getElementById('nc_pfrom').value;
+    var pTo   = +document.getElementById('nc_pto').value;
+    if(pTo < pFrom){ var t = pFrom; pFrom = pTo; pTo = t; }
+    var room = (document.getElementById('nc_room').value||'').trim();
+    var from = Math.max(1, +document.getElementById('nc_from').value || 1);
+    var to   = Math.max(1, +document.getElementById('nc_to').value || db.config.teachingWeeks);
+    var type = document.getElementById('nc_type').value;
+
+    var targets = [sheetCtx.mid];
+    var allEl = document.getElementById('nc_all');
+    if(allEl && allEl.checked){
+      db.members.forEach(function(m){ if(m.id !== sheetCtx.mid) targets.push(m.id); });
+    }
+
+    /* 冲突检查：同一人、同一天、同一大节已有课 */
+    var clash = [];
+    var hitP = {};
+    db.courses.forEach(function(c){
+      if(c.day !== day) return;
+      if(c.period < pFrom || c.period > pTo) return;
+      if(targets.indexOf(c.memberId) < 0) return;
+      var key = c.memberId + '#' + c.period;
+      if(hitP[key]) return;
+      hitP[key] = 1;
+      var mm = db.members.filter(function(x){ return x.id === c.memberId; })[0];
+      clash.push('　' + (mm ? mm.name : '?') + ' · ' + db.config.periodNames[c.period-1] + '（已有「' + c.name + '」）');
+    });
+    if(clash.length && !confirm('以下时段已有课程，仍要添加吗？\n\n' + clash.join('\n'))) return;
+
+    var stamp = Date.now();
+    targets.forEach(function(mid, mi){
+      for(var p = pFrom; p <= pTo; p++){
+        db.courses.push({
+          id:'c' + stamp + '_' + mi + '_' + p,
+          memberId:mid, name:name, room:room,
+          day:day, period:p, from:from, to:to, type:type
+        });
+      }
+    });
+    saveDb(); closeSheet(); render(true);
   },
   delCourse:function(id){
     if(!confirm('确定删除这条课程？')) return;
     db.courses = db.courses.filter(function(c){ return c.id !== id; });
-    saveDb(); render();
+    saveDb(); render(true);
   },
   copyCourses:function(fromId){
     var from = db.members.filter(function(x){ return x.id===fromId; })[0];
     if(!from) return;
     var src = db.courses.filter(function(c){ return c.memberId===fromId; });
-    if(!src.length){ alert('这位成员还没有课程，没有可复制的内容'); return; }
+    if(!src.length){ alert('「'+from.name+'」还没有课程，没有可复制的内容'); return; }
     var others = db.members.filter(function(x){ return x.id!==fromId; });
-    if(!others.length) return;
-    var desc = others.map(function(x){
+    if(!others.length){ alert('宿舍里目前只有这一位成员'); return; }
+    sheetCtx = {mode:'copy', fromId:fromId};
+    var rows = others.map(function(x){
       var n = db.courses.filter(function(c){ return c.memberId===x.id; }).length;
-      return x.name + '（现有 '+n+' 门）';
-    }).join('、');
-    if(!confirm('把「'+from.name+'」的 '+src.length+' 门课覆盖给：\n\n'+desc+'\n\n对方已有课程会被全部替换，确定？')) return;
-    db.courses = db.courses.filter(function(c){ return c.memberId===fromId; });
+      return '<label class="chk" style="margin:0;padding:11px 2px;border-bottom:1px solid var(--line2)">'
+           +   '<input type="checkbox" class="cc-target" value="'+x.id+'">'
+           +   '<span style="flex:1">'+esc(x.name)
+           +     '<span style="color:var(--text3);font-size:11.5px"> · 现有 '+n+' 门</span></span>'
+           + '</label>';
+    }).join('');
+    openSheet(
+      '<h3>把「'+esc(from.name)+'」的课表复制给…</h3>'
+      + '<div class="sst">共 '+src.length+' 门课。被选中的人，原有课程会被<b>全部替换</b></div>'
+      + '<div style="margin-bottom:10px">'+rows+'</div>'
+      + '<div class="btn-row" style="margin-bottom:12px">'
+      +   '<button class="btn sm" onclick="App.pickAllTargets(true)">全选</button>'
+      +   '<button class="btn sm" onclick="App.pickAllTargets(false)">全不选</button>'
+      + '</div>'
+      + '<button class="btn primary" style="width:100%;padding:12px" onclick="App.doCopy()">确认复制</button>'
+      + '<button class="sheet-close" onclick="App.closeSheet()">取消</button>'
+    );
+  },
+  pickAllTargets:function(v){
+    var els = document.querySelectorAll('.cc-target');
+    for(var i=0;i<els.length;i++) els[i].checked = !!v;
+  },
+  doCopy:function(){
+    var els = document.querySelectorAll('.cc-target');
+    var targets = [];
+    for(var i=0;i<els.length;i++){ if(els[i].checked) targets.push(els[i].value); }
+    if(!targets.length){ alert('请至少选择一位成员'); return; }
+    var fromId = sheetCtx.fromId;
+    var src = db.courses.filter(function(c){ return c.memberId===fromId; });
+    /* 只清掉被选中的人原有课程，其他未选中的保持不动 */
+    db.courses = db.courses.filter(function(c){
+      return c.memberId === fromId || targets.indexOf(c.memberId) < 0;
+    });
     var stamp = Date.now();
-    others.forEach(function(m, mi){
+    targets.forEach(function(mid, mi){
       src.forEach(function(c, ci){
         db.courses.push({
-          id:'c'+stamp+'_'+mi+'_'+ci,
-          memberId:m.id, name:c.name, room:c.room,
+          id:'c' + stamp + '_' + mi + '_' + ci,
+          memberId:mid, name:c.name, room:c.room,
           day:c.day, period:c.period, from:c.from, to:c.to, type:c.type
         });
       });
     });
-    saveDb(); render();
-    alert('已把「'+from.name+'」的课表复制给其他 '+others.length+' 人');
+    saveDb(); closeSheet(); render(true);
   },
 
   addOverride:function(kind){
@@ -1346,9 +1432,9 @@ var App = {
       }
       db.overrides[ds] = ov;
     }
-    saveDb(); render();
+    saveDb(); render(true);
   },
-  delOverride:function(k){ delete db.overrides[k]; saveDb(); render(); },
+  delOverride:function(k){ delete db.overrides[k]; saveDb(); render(true); },
 
   /* ---- 数据 ---- */
   exportData:function(){
@@ -1359,7 +1445,7 @@ var App = {
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
     lsSet(BACKUP_KEY, String(Date.now()));
-    render();
+    render(true);
   },
   importData:function(){ document.getElementById('importFile').click(); },
   onImportFile:function(input){
@@ -1371,7 +1457,7 @@ var App = {
         var obj = JSON.parse(r.result);
         if(!obj || !obj.config || !obj.members) throw new Error('格式不正确');
         if(!confirm('导入将覆盖当前全部数据，确定继续？')) return;
-        db = obj; normalize(); saveDb(); render();
+        db = obj; normalize(); saveDb(); render(true);
         alert('导入成功');
       }catch(e){ alert('导入失败：'+e.message); }
     };
@@ -1400,7 +1486,7 @@ var App = {
   resetAll:function(){
     if(!confirm('将清空所有考勤、在宿记录、课表与成员，恢复为初始状态。此操作不可撤销，确定？')) return;
     if(!confirm('再确认一次：真的要清空吗？')) return;
-    db = seedDb(); saveDb(); render();
+    db = seedDb(); saveDb(); render(true);
   }
 };
 function nameOf(id){
@@ -1427,11 +1513,11 @@ function initPWA(){
     navigator.serviceWorker.register('sw.js', {scope:'./'}).then(function(){
       PWA.registered = true;
       PWA.state = 'on';
-      render();
+      render(true);
     })['catch'](function(err){
       PWA.error = String((err && err.message) || err);
       PWA.state = 'failed';
-      render();
+      render(true);
     });
   });
 }
