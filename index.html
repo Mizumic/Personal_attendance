@@ -1155,6 +1155,8 @@ var sheetCtx = {};
 
 /* ================= 交互 ================= */
 var App = {
+  /* 弹层关闭：HTML 里写的是 onclick="App.closeSheet()"，必须挂到 App 上才可调用 */
+  closeSheet:function(){ closeSheet(); },
   go:function(k){ state.tab = k; if(location.hash !== '#'+k){ location.hash = k; } render(); },
   setStatTab:function(k){ state.statTab = k; render(true); },
   shiftDay:function(n){ state.date = fmt(addDays(parseD(state.date), n)); render(); },
@@ -1542,6 +1544,20 @@ window.addEventListener('hashchange', function(){
   if(VIEWS[k] && state.tab !== k){ state.tab = k; render(); }
 });
 render();
+
+/* 自检：页面上 onclick 引用的 App.xxx 若未定义，会在控制台报警。
+   防止"加了按钮但忘了把处理函数挂到 App 上"这类问题（点下去没反应）。 */
+(function selfCheck(){
+  var re = /App\.([a-zA-Z_]\w*)\s*\(/g, m, used = {}, missing = [];
+  var html = document.documentElement.innerHTML;
+  while((m = re.exec(html))){ used[m[1]] = 1; }
+  Object.keys(used).forEach(function(k){
+    if(typeof App[k] !== 'function') missing.push(k);
+  });
+  if(missing.length){
+    console.error('[宿舍出勤] 处理函数未定义，相关按钮会失效：', missing.join(', '));
+  }
+})();
 
 })();
 </script>
