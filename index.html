@@ -1036,7 +1036,10 @@ function viewSettings(){
 
   /* 课表 */
   h += '<div class="card"><div class="card-head"><div class="card-title">课表管理</div>'
-     + '<div class="card-note">'+db.courses.length+' 条</div></div>';
+     + '<div class="card-note">'+db.courses.length+' 条</div></div>'
+     + '<div class="btn-row" style="margin-bottom:8px">'
+     +   '<button class="btn sm primary" onclick="App.bulkImport()">批量导入课表</button>'
+     + '</div>';
   var byMember = {};
   db.members.forEach(function(m){ byMember[m.id] = []; });
   db.courses.forEach(function(x){ if(byMember[x.memberId]) byMember[x.memberId].push(x); });
@@ -1109,10 +1112,116 @@ function viewSettings(){
   return h;
 }
 
+/* ================= 批量导入：文本解析 =================
+   设计原则：不去猜教务系统的网页格式（太脆），而是识别"人类写法"。
+   每行一门课，字段顺序无所谓，多余符号会被忽略。
+   支持：
+     周一 上午二 高等数学 A座101
+     星期二 第3-4节 大学英语(外语楼204)
+     周三 下午一 线性代数
+     周四 上午一 数据结构 1-16周
+     周五 5-6 中国近现代史纲要 B座201 双周
+   另外支持"星期单独一行"的分组写法：
+     周一
+     上午二 高等数学 A座101
+     晚上 大学物理实验
+   ⚠ 注意：本文件会公开托管，注释与 placeholder 里一律使用通用课程名，
+     不要照抄个人真实课表。
+========================================================= */
+
+function looksLikeRoom(s){
+  if(!s) return false;
+  if(/[楼室馆区座苑栋场厅]/) return /[楼室馆区座苑栋场厅]/.test(s);
+  if(/^[\u4e00-\u9fa5A-Za-z]{0,4}\d+\s*[-－—]\s*\d+$/.test(s)) return true;   // 如 A2-203
+  if(/^[\u4e00-\u9fa5A-Za-z]{0,4}\d{2,}$/.test(s)) return true;               // 教学楼203
+  return false;
+}
+
+function parseBulkText(text){
+  var lines = String(text || '').split(/\r?\n/);
+  var pNames = db.config.periodNames;
+  var wdMap = {'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'日':7,'天':7,
+               '1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7};
+  var out = [], errors = [], curDay = null;
+
+  for(var i=0; i<lines.length; i++){
+    var raw = lines[i].trim();
+    if(!raw || raw.charAt(0) === '#') continue;
+    var line = raw;
+
+    /* 1) 星期（识别不到就沿用上一行，支持"星期单独一行"的分组写法） */
+    var dayHit = line.match(/(?:周|星期|礼拜)\s*([一二三四五六日天1-7])/);
+    var hasDay = !!dayHit;
+    if(hasDay){
+      curDay = wdMap[dayHit[1]] || null;
+      line = line.replace(dayHit[0], ' ');
+    }
+    /* 只写了星期、后面没东西 → 记为分组标题，跳过 */
+    if(hasDay && !line.trim()) continue;
+    if(!curDay){ errors.push({line:i+1, text:raw, msg:'找不到「周几」'}); continue; }
+
+    /* 2) 周次范围（必须在节次之前提取，否则 1-16 会被当成小节号） */
+    var wFrom = null, wTo = null, wType = 'all';
+    var wkHit = line.match(/(\d+)\s*[-~—－到至]\s*(\d+)\s*周/);
+    if(wkHit){ wFrom = +wkHit[1]; wTo = +wkHit[2]; line = line.replace(wkHit[0], ' '); }
+    else {
+      var w1 = line.match(/第?\s*(\d+)\s*周/);
+      if(w1){ wFrom = wTo = +w1[1]; line = line.replace(w1[0], ' '); }
+    }
+    if(/单周|[（(]\s*单\s*[）)]/.test(line)){ wType = 'odd';  line = line.replace(/单周|[（(]\s*单\s*[）)]/g, ' '); }
+    else if(/双周|[（(]\s*双\s*[）)]/.test(line)){ wType = 'even'; line = line.replace(/双周|[（(]\s*双\s*[）)]/g, ' '); }
+
+    /* 3) 节次：先按大节名匹配，再按小节号换算（每 2 小节 = 1 大节） */
+    var period = null;
+    for(var pi=0; pi<pNames.length; pi++){
+      if(pNames[pi] && line.indexOf(pNames[pi]) >= 0){
+        period = pi + 1;
+        line = line.replace(pNames[pi], ' ');
+        break;
+      }
+    }
+    if(period === null){
+      var secHit = line.match(/(?:第)?\s*(\d+)\s*(?:[-~—－到,、]\s*(\d+))?\s*节/);
+      if(secHit){
+        period = Math.ceil((+secHit[1]) / 2);
+        line = line.replace(secHit[0], ' ');
+      }
+    }
+    if(period === null){
+      var bare = line.match(/(?:^|\s)(\d{1,2})\s*[-~—－]\s*(\d{1,2})(?=\s|$)/);
+      if(bare){
+        period = Math.ceil((+bare[1]) / 2);
+        line = line.replace(bare[0], ' ');
+      }
+    }
+    if(period === null){ errors.push({line:i+1, text:raw, msg:'找不到节次（如「上午二」「第3-4节」）'}); continue; }
+    period = Math.max(1, Math.min(pNames.length, period));
+
+    /* 4) 剩下的就是课程名 + 可选教室 */
+    var rest = line.replace(/[\s　]+/g, ' ').replace(/^[\s\-—·、,]+|[\s\-—·、,]+$/g, '').trim();
+    if(!rest){ errors.push({line:i+1, text:raw, msg:'没有课程名'}); continue; }
+
+    var name = rest, room = '';
+    var br = rest.match(/[（(]\s*([^）)]+)\s*[）)]\s*$/);
+    if(br){ room = br[1].trim(); name = rest.replace(br[0], '').trim(); }
+    else {
+      var mm = rest.match(/^(.*\S)\s+(\S+)$/);
+      if(mm && looksLikeRoom(mm[2])){ name = mm[1].trim(); room = mm[2].trim(); }
+    }
+    name = name.replace(/^[\s\-—·、,]+|[\s\-—·、,]+$/g, '').trim();
+    if(!name){ errors.push({line:i+1, text:raw, msg:'没有课程名'}); continue; }
+
+    out.push({day:curDay, period:period, name:name, room:room,
+              from:wFrom, to:wTo, type:wType, src:i+1});
+  }
+  return {ok:out, errors:errors};
+}
+
 function weekRangeLabel(x){
   var t = x.type==='odd' ? '单周' : (x.type==='even' ? '双周' : '');
-  if(x.from===1 && x.to===17 && !t) return '1-17周';
-  return x.from+'-'+x.to+'周'+(t?('·'+t):'');
+  var full = (x.from === 1 && x.to === db.config.teachingWeeks);
+  if(full && !t) return '1-' + x.to + '周';
+  return x.from + '-' + x.to + '周' + (t ? ('·' + t) : '');
 }
 
 function esc(s){
@@ -1409,6 +1518,96 @@ var App = {
           id:'c' + stamp + '_' + mi + '_' + ci,
           memberId:mid, name:c.name, room:c.room,
           day:c.day, period:c.period, from:c.from, to:c.to, type:c.type
+        });
+      });
+    });
+    saveDb(); closeSheet(); render(true);
+  },
+
+  /* ---------- 批量导入课表 ---------- */
+  bulkImport:function(){
+    var members = db.members;
+    var rows = members.map(function(m){
+      return '<label class="chk" style="margin:0;padding:9px 2px;border-bottom:1px solid var(--line2)">'
+           +   '<input type="checkbox" class="bi-target" value="'+m.id+'"'+((members.length===1)?' checked':'')+'>'
+           +   '<span style="flex:1">'+esc(m.name)+'</span>'
+           + '</label>';
+    }).join('');
+    openSheet(
+      '<h3>批量导入课表</h3>'
+      + '<div class="sst">每行一门课，字段顺序随意。先选要导入到哪些成员</div>'
+      + '<div style="margin-bottom:12px">'+rows+'</div>'
+      + '<div class="field"><label>粘贴课表文本</label>'
+      +   '<textarea id="bi_text" rows="6" oninput="App.parsePreview()" spellcheck="false"'
+      +   ' style="width:100%;border:1px solid var(--line);border-radius:9px;padding:9px 10px;font-size:13px;line-height:1.6;font-family:ui-monospace,Menlo,Consolas,monospace;resize:vertical"'
+      +   ' placeholder="周一 上午二 高等数学 A座101&#10;周二 第3-4节 大学英语 外语楼204&#10;周三 下午一 线性代数&#10;周四 上午一 数据结构 1-16周"></textarea></div>'
+      + '<div style="font-size:11.5px;color:var(--text3);margin:-6px 0 12px;line-height:1.75">'
+      +   '· <b>星期</b>：周一 / 星期一 / 礼拜一（也可把星期单独写成一行当分组标题）<br>'
+      +   '· <b>节次</b>：上午一 / 第3-4节 / 5-6节 / 晚上（按每 2 小节 = 1 大节换算）<br>'
+      +   '· <b>可选</b>：周次写 1-16周，或标 单周 / 双周；教室写在最后，或用括号括起来'
+      + '</div>'
+      + '<div id="bi_preview" style="margin-bottom:12px;font-size:12px;color:var(--text3)">粘贴后这里会显示解析结果</div>'
+      + '<button class="btn primary" style="width:100%;padding:12px" onclick="App.doBulkImport()">导入</button>'
+      + '<button class="sheet-close" onclick="App.closeSheet()">取消</button>'
+    );
+  },
+
+  parsePreview:function(){
+    var el = document.getElementById('bi_text');
+    var box = document.getElementById('bi_preview');
+    if(!el || !box) return;
+    var txt = el.value;
+    if(!txt.trim()){ box.innerHTML = '粘贴后这里会显示解析结果'; return; }
+    var r = parseBulkText(txt);
+    var h = '<div style="color:var(--text2);margin-bottom:7px">识别到 '
+          + '<b style="color:var(--green)">'+r.ok.length+'</b> 门课'
+          + (r.errors.length ? '，<span style="color:var(--red)">'+r.errors.length+' 行无法识别</span>' : '')
+          + '</div>';
+    if(r.ok.length){
+      h += '<div style="max-height:190px;overflow:auto;border:1px solid var(--line);border-radius:10px;background:#fff">';
+      r.ok.forEach(function(c){
+        h += '<div style="display:flex;gap:6px;padding:6px 9px;border-bottom:1px solid var(--line2);font-size:12px;color:var(--text)">'
+           +   '<span style="width:32px;flex:none;color:var(--text2)">周'+WD[c.day-1]+'</span>'
+           +   '<span style="width:54px;flex:none;color:var(--text2);overflow:hidden;white-space:nowrap">'+esc(db.config.periodNames[c.period-1]||'')+'</span>'
+           +   '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name)+'</span>'
+           +   '<span style="color:var(--text3);flex:none">'+esc(c.room||'')+'</span>'
+           +   '<span style="color:var(--text3);flex:none;width:70px;text-align:right">'
+           +     esc(weekRangeLabel({from:(c.from||1), to:(c.to||db.config.teachingWeeks), type:c.type}))
+           +   '</span>'
+           + '</div>';
+      });
+      h += '</div>';
+    }
+    if(r.errors.length){
+      h += '<div style="margin-top:8px;color:var(--red);line-height:1.7">';
+      r.errors.slice(0,5).forEach(function(e){
+        h += '第 '+e.line+' 行「'+esc(e.text.slice(0,20))+'」：'+e.msg+'<br>';
+      });
+      if(r.errors.length > 5) h += '…另有 '+(r.errors.length-5)+' 行同样问题';
+      h += '</div>';
+    }
+    box.innerHTML = h;
+  },
+
+  doBulkImport:function(){
+    var els = document.querySelectorAll('.bi-target');
+    var targets = [];
+    for(var i=0;i<els.length;i++){ if(els[i].checked) targets.push(els[i].value); }
+    if(!targets.length){ alert('请至少选择一位成员'); return; }
+    var el = document.getElementById('bi_text');
+    var r = parseBulkText(el ? el.value : '');
+    if(!r.ok.length){ alert('没有可导入的课程，请检查格式'); return; }
+    var desc = r.ok.length+' 门课 × '+targets.length+' 人 = '+(r.ok.length*targets.length)+' 条记录'
+             + (r.errors.length ? '\n另有 '+r.errors.length+' 行无法识别，将被跳过' : '');
+    if(!confirm('将导入：\n\n'+desc+'\n\n确定？')) return;
+    var stamp = Date.now();
+    targets.forEach(function(mid, mi){
+      r.ok.forEach(function(c, ci){
+        db.courses.push({
+          id:'c' + stamp + '_' + mi + '_' + ci,
+          memberId:mid, name:c.name, room:c.room,
+          day:c.day, period:c.period,
+          from:(c.from || 1), to:(c.to || db.config.teachingWeeks), type:c.type
         });
       });
     });
