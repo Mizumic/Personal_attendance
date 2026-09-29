@@ -276,8 +276,11 @@ button,input,select{font-family:inherit;color:inherit;}
 .attgrid button{border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px 2px;font-size:12px;font-weight:600;cursor:pointer;color:var(--text2);white-space:nowrap;}
 .attgrid button.sel{border-width:2px;padding:8px 1px;}
 .attgrid button:active{background:#f9fafb;}
-.chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0;max-height:134px;overflow-y:auto;-webkit-overflow-scrolling:touch;}
-.chipx{border:1px solid var(--line);background:#fff;border-radius:20px;padding:5px 11px;font-size:12.5px;cursor:pointer;color:var(--text2);}
+/* 单行横向滚动：课再多也不会把表单撑高。
+   表单越高、弹层就"顶"得越满，手机上体验很差，所以这里宁可横向滑也不要换行。 */
+.chips{display:flex;flex-wrap:nowrap;gap:6px;margin:8px 0 0;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;padding-bottom:1px;}
+.chips::-webkit-scrollbar{height:0;display:none;}
+.chipx{flex:none;border:1px solid var(--line);background:#fff;border-radius:20px;padding:5px 11px;font-size:12.5px;cursor:pointer;color:var(--text2);}
 .chipx:active{background:#f3f4f6;}
 .chipx.on{border-color:var(--primary);background:var(--primary-bg);color:var(--primary);font-weight:600;}
 
@@ -326,6 +329,8 @@ button,input,select{font-family:inherit;color:inherit;}
 'use strict';
 
 /* ================= 常量 ================= */
+/* 发版时和 sw.js 的 CACHE 版本一起改 —— 设置页会显示它，方便确认手机上是不是新版 */
+var APP_VER = 'v2.2（2026-09-29）';
 var DB_KEY = 'dormAttendance.v1';
 var BACKUP_KEY = 'dormAttendance.lastBackupAt';
 var WD = ['一','二','三','四','五','六','日'];
@@ -1542,8 +1547,22 @@ function viewSettings(){
      + '<input type="file" id="importFile" accept=".json,application/json" style="display:none" onchange="App.onImportFile(this)">'
      + '</div>';
 
+  /* 版本与更新：装到手机主屏后页面被缓存，改了代码也不一定立刻生效，给一个手动拉取的入口 */
+  h += '<div class="card"><div class="card-head"><div class="card-title">版本与更新</div>'
+     +   '<div class="card-note">当前 ' + APP_VER + '</div></div>'
+     +   '<div style="font-size:12px;color:var(--text3);margin-bottom:10px">'
+     +     '这个工具装到手机主屏后会把页面缓存到本地，所以<b>发新版本了也可能还在看旧的</b>。'
+     +     '界面看着不对就点下面的按钮，强制拉一次最新版。<br>它只清页面缓存，'
+     +     '<b>不会动你录入的考勤 / 在宿 / 课表 / 作业数据</b>。'
+     +   '</div>'
+     +   '<div class="btn-row">'
+     +     '<button class="btn primary" onclick="App.checkUpdate()">立即检查更新</button>'
+     +   '</div>'
+     +   '<div id="updMsg" style="font-size:12px;color:var(--text3);margin-top:9px;line-height:1.6"></div>'
+     + '</div>';
+
   h += '<div style="text-align:center;font-size:11.5px;color:var(--text3);padding:6px 0 4px;line-height:1.7">'
-     +   '宿舍出勤统计 · v2<br>' + offlineLabel()
+     +   '宿舍出勤统计 · ' + APP_VER + '<br>' + offlineLabel()
      + '</div>';
 
   return h;
@@ -1678,38 +1697,66 @@ function render(keepScroll){
   window.scrollTo(0, keepScroll ? y : 0);
 }
 
-/* ================= Sheet ================= */
+/* ================= Sheet =================
+   每次开关都换一个"代次" token。关闭动画带 220ms 延迟清理，如果这段时间里又打开了
+   新弹层，旧定时器必须作废 —— 否则它会把刚弹出来的新表单一并清空，用户看到的就是
+   "点了「添加作业」没反应"。真机上手指连点很容易踩进这个窗口。 */
+var _sheetToken = 0;
+
 function openSheet(html){
+  _sheetToken++;
   var root = document.getElementById('sheetRoot');
   root.innerHTML = '<div class="mask" onclick="App.closeSheet()"></div>'
     + '<div class="sheet" id="sheetEl"><div class="sheet-grip"></div>' + html + '</div>';
   root.style.pointerEvents = 'auto';
-  requestAnimationFrame(function(){
-    root.querySelector('.mask').classList.add('on');
-    document.getElementById('sheetEl').classList.add('on');
-  });
+  /* 先让初始态（translateY(102%)）落地，下一帧再加 .on 触发滑入。
+     rAF 在部分机型/后台标签下会被节流甚至不执行，那时弹层会永远停在屏幕外，
+     表现和"根本没弹出来"一样 —— 所以补一个定时兜底，保证它一定会滑上来。 */
+  var applied = false;
+  function apply(){
+    if(applied) return;
+    applied = true;
+    var m = root.querySelector('.mask'), s = document.getElementById('sheetEl');
+    if(m) m.classList.add('on');
+    if(s) s.classList.add('on');
+  }
+  requestAnimationFrame(apply);
+  setTimeout(apply, 80);
 }
 function closeSheet(){
   var root = document.getElementById('sheetRoot');
   var m = root.querySelector('.mask'), s = document.getElementById('sheetEl');
   if(m) m.classList.remove('on');
   if(s) s.classList.remove('on');
-  setTimeout(function(){ root.innerHTML = ''; root.style.pointerEvents = 'none'; }, 220);
+  var my = _sheetToken;                 // 记下这次关闭属于哪一代
+  setTimeout(function(){
+    if(my !== _sheetToken) return;      // 期间又开过弹层 → 让新的那个好好活着
+    root.innerHTML = '';
+    root.style.pointerEvents = 'none';
+    root.style.bottom = '';             // 顺手清掉键盘抬升留下内联样式
+  }, 220);
 }
 
 var sheetCtx = {};
 
 /* 软键盘弹起时把整个弹层抬到键盘之上。
    不处理的话，表单底部的「保存」会被键盘盖住 —— 手指点下去落在键盘上，毫无反应，
-   表现得很像"按钮坏了"。桌面浏览器没有软键盘，这里算出的 kb 恒为 0，不影响。 */
+   表现得很像"按钮坏了"。
+
+   ⚠️ 判据必须收紧：iOS 上页面滚动、地址栏收放同样会改动 visualViewport，
+   若无条件按它算高度，弹层会被莫名推走（用户会说"弹出来的位置不对、顶到老远"）。
+   所以只在「弹层开着 且 焦点确实落在弹层内的输入框」时才抬升，其余情况一律复位。 */
 (function keyboardLift(){
   var vv = window.visualViewport;
   if(!vv || !vv.addEventListener) return;
   function sync(){
     var root = document.getElementById('sheetRoot');
-    if(!root) return;
-    var kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
-    root.style.bottom = kb > 40 ? (kb + 'px') : '';
+    if(!root || !root.innerHTML) return;
+    var ae = document.activeElement;
+    var typing = !!ae && root.contains(ae) && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName);
+    if(!typing){ if(root.style.bottom) root.style.bottom = ''; return; }
+    var kb = Math.round(window.innerHeight - vv.height - vv.offsetTop);
+    root.style.bottom = kb > 60 ? (kb + 'px') : '';
   }
   vv.addEventListener('resize', sync);
   vv.addEventListener('scroll', sync);
@@ -2211,6 +2258,38 @@ var App = {
     if(!confirm('删除作业「'+x.title+'」？\n（这里不记录提交情况，交完直接删即可）')) return;
     db.homework = db.homework.filter(function(y){ return y.id!==id; });
     saveDb(); render(true);
+  },
+
+  /* ---- 版本更新 ---- */
+  /* 手动拉取最新版：清掉页面缓存 + 注销 Service Worker，再带时间戳重载。
+     只动缓存与 SW，不碰 localStorage，所以录入的数据是安全的。 */
+  checkUpdate:function(){
+    var msg = document.getElementById('updMsg');
+    function say(t){ if(msg) msg.innerHTML = t; }
+    say('正在检查…');
+
+    var jobs = [];
+    try{
+      if(window.caches && window.caches.keys){
+        jobs.push(caches.keys().then(function(ks){
+          return Promise.all(ks.map(function(k){ return caches.delete(k); }));
+        }));
+      }
+    }catch(e){}
+    try{
+      if(navigator.serviceWorker && navigator.serviceWorker.getRegistrations){
+        jobs.push(navigator.serviceWorker.getRegistrations().then(function(rs){
+          return Promise.all(rs.map(function(r){ return r.unregister(); }));
+        }));
+      }
+    }catch(e){}
+
+    Promise.all(jobs)['catch'](function(){})['then'](function(){
+      say('旧缓存已清掉，正在重新加载…');
+      /* 带时间戳重载，顺便绕开浏览器自身的 HTTP 缓存 */
+      var url = location.pathname + '?_u=' + Date.now() + (location.hash || '');
+      setTimeout(function(){ location.replace(url); }, 400);
+    });
   },
 
   addOverride:function(kind){
