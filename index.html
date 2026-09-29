@@ -146,7 +146,8 @@ button,input,select{font-family:inherit;color:inherit;}
 /* ---------- 表单 ---------- */
 .field{margin-bottom:10px;}
 .field label{display:block;font-size:12px;color:var(--text2);margin-bottom:4px;}
-.field input,.field select{width:100%;border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-size:14px;background:#fff;}
+/* 16px 是 iOS 的安全线：小于它，输入框一聚焦 Safari 就会自动放大整页，界面会跳 */
+.field input,.field select{width:100%;border:1px solid var(--line);border-radius:9px;padding:9px 10px;font-size:16px;background:#fff;}
 .field input:focus,.field select:focus{outline:2px solid var(--primary-bg);border-color:var(--primary);}
 .fgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:9px;}
 .fgrid3{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;}
@@ -204,6 +205,20 @@ button,input,select{font-family:inherit;color:inherit;}
 .sheet-opts button.o-late i{background:var(--orange);}
 .sheet-opts button.o-leave i{background:var(--violet);}
 .sheet-close{width:100%;margin-top:11px;border:1px solid var(--line);background:#fff;border-radius:12px;padding:12px;font-size:14px;cursor:pointer;font-weight:500;}
+/* 表单底部操作栏：吸附在弹层底部，软键盘弹起时也不会被顶出可视区。
+   有底栏时把 .sheet 自己的 padding-bottom 收掉，改由底栏承担 —— 否则 sticky 的
+   约束基准会落在 content box 上，底栏永远差一截贴不到弹层底边。
+   （:has() 不支持时只是多一条白边，功能不受影响。） */
+.sheet:has(.sheet-act){padding-bottom:0;}
+.sheet-act{
+  position:sticky;bottom:0;z-index:2;background:#fff;
+  margin:14px -16px 0;padding:10px 16px calc(16px + env(safe-area-inset-bottom));
+  box-shadow:0 -9px 14px -8px rgba(17,24,39,.10);
+}
+.sheet-act .btn{width:100%;padding:12px;}
+.sheet-act .sheet-close{margin-top:9px;}
+.err{display:none;color:var(--red);font-size:12px;margin-top:5px;line-height:1.5;}
+.err.on{display:block;}
 
 /* ---------- 图表 ---------- */
 .chart-wrap{overflow:hidden;}
@@ -261,9 +276,10 @@ button,input,select{font-family:inherit;color:inherit;}
 .attgrid button{border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px 2px;font-size:12px;font-weight:600;cursor:pointer;color:var(--text2);white-space:nowrap;}
 .attgrid button.sel{border-width:2px;padding:8px 1px;}
 .attgrid button:active{background:#f9fafb;}
-.chips{display:flex;flex-wrap:wrap;gap:6px;margin:-4px 0 12px;}
-.chipx{border:1px solid var(--line);background:#fff;border-radius:20px;padding:4px 10px;font-size:12px;cursor:pointer;color:var(--text2);}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0;max-height:134px;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+.chipx{border:1px solid var(--line);background:#fff;border-radius:20px;padding:5px 11px;font-size:12.5px;cursor:pointer;color:var(--text2);}
 .chipx:active{background:#f3f4f6;}
+.chipx.on{border-color:var(--primary);background:var(--primary-bg);color:var(--primary);font-weight:600;}
 
 /* ---------- 导入方式选择 ---------- */
 .imode{border:1px solid var(--line);border-radius:12px;padding:12px 13px;margin-bottom:9px;cursor:pointer;}
@@ -1683,6 +1699,22 @@ function closeSheet(){
 
 var sheetCtx = {};
 
+/* 软键盘弹起时把整个弹层抬到键盘之上。
+   不处理的话，表单底部的「保存」会被键盘盖住 —— 手指点下去落在键盘上，毫无反应，
+   表现得很像"按钮坏了"。桌面浏览器没有软键盘，这里算出的 kb 恒为 0，不影响。 */
+(function keyboardLift(){
+  var vv = window.visualViewport;
+  if(!vv || !vv.addEventListener) return;
+  function sync(){
+    var root = document.getElementById('sheetRoot');
+    if(!root) return;
+    var kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+    root.style.bottom = kb > 40 ? (kb + 'px') : '';
+  }
+  vv.addEventListener('resize', sync);
+  vv.addEventListener('scroll', sync);
+})();
+
 /* 原地重画弹层内容（不重播滑入动画），用于弹层内切换选项后刷新 */
 function refreshSheet(html){
   var root = document.getElementById('sheetRoot');
@@ -2118,6 +2150,10 @@ var App = {
   addHomework:function(){
     var names = courseNames();
     sheetCtx = {mode:'homework'};
+    /* 科目必须列全。早先这里只渲染前 8 个，课表一多，排在后头的课永远选不到 */
+    var chipHtml = names.map(function(n){
+      return '<button type="button" class="chipx" data-n="'+esc(n)+'" onclick="App.pickHwCourse(this)">'+esc(n)+'</button>';
+    }).join('');
     openSheet(
       '<h3>添加作业</h3>'
       + '<div class="sst">记「哪门课 · 什么作业」；交完在列表里直接删掉，不必维护完成状态</div>'
@@ -2126,26 +2162,39 @@ var App = {
       +   '<datalist id="hw_course_list">'
       +     names.map(function(n){ return '<option value="'+esc(n)+'"></option>'; }).join('')
       +   '</datalist>'
+      +   (names.length
+            ? '<div class="chips">' + chipHtml + '</div>'
+            : '<div class="err on" style="color:var(--text3)">课表里还没有课程，可直接手打课名，或去「设置 → 课表管理」添加</div>')
       + '</div>'
-      + (names.length
-          ? '<div class="chips">' + names.slice(0,8).map(function(n){
-              return '<button type="button" class="chipx" data-n="'+esc(n)+'" onclick="App.pickHwCourse(this)">'+esc(n)+'</button>';
-            }).join('') + '</div>'
-          : '')
-      + '<div class="field"><label>作业内容</label><input id="hw_title" placeholder="如：第三章习题 1-10"></div>'
+      + '<div class="field"><label>作业内容</label><input id="hw_title" placeholder="如：第三章习题 1-10">'
+      +   '<div class="err" id="hw_err">请填写作业内容</div></div>'
       + '<div class="field"><label>截止日期（可选，留空就不进提醒）</label><input type="date" id="hw_due"></div>'
       + '<div class="field"><label>备注（可选）</label><input id="hw_note" placeholder="如：要交纸质版"></div>'
-      + '<button class="btn primary" style="width:100%;padding:12px;margin-top:2px" onclick="App.saveHomework()">保存</button>'
-      + '<button class="sheet-close" onclick="App.closeSheet()">取消</button>'
+      + '<div class="sheet-act">'
+      +   '<button class="btn primary" onclick="App.saveHomework()">保存</button>'
+      +   '<button class="sheet-close" onclick="App.closeSheet()">取消</button>'
+      + '</div>'
     );
   },
   pickHwCourse:function(el){
     var i = document.getElementById('hw_course');
-    if(i && el) i.value = el.getAttribute('data-n') || '';
+    if(!i || !el) return;
+    i.value = el.getAttribute('data-n') || '';
+    /* 给选中的课名一个明确的选中态 —— 不然点完看不出有没有生效 */
+    var all = document.querySelectorAll('.chipx');
+    for(var k=0;k<all.length;k++) all[k].classList.toggle('on', all[k] === el);
   },
   saveHomework:function(){
-    var title = (document.getElementById('hw_title').value||'').trim();
-    if(!title){ alert('请填写作业内容'); return; }
+    var ti  = document.getElementById('hw_title');
+    var err = document.getElementById('hw_err');
+    var title = (ti && ti.value || '').trim();
+    if(!title){
+      /* 原来这里是 alert()：弹窗一挡，用户以为"按钮点了没反应"，改成就地提示 */
+      if(err) err.classList.add('on');
+      if(ti) ti.focus();
+      return;
+    }
+    if(err) err.classList.remove('on');
     db.homework.push({
       id: hwNewId(),
       course: (document.getElementById('hw_course').value||'').trim(),
