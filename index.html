@@ -212,6 +212,59 @@ button,input,select{font-family:inherit;color:inherit;}
 .chart-legend button.off{opacity:.34;text-decoration:line-through;}
 .chart-legend i{width:9px;height:9px;border-radius:50%;display:block;}
 
+/* ---------- 课程备注（格子上的标记） ---------- */
+.cell{position:relative;}
+.cell .marks{position:absolute;top:4px;right:4px;display:flex;gap:3px;align-items:center;pointer-events:none;}
+.mk{font-size:8.5px;line-height:1.35;padding:1px 4px;border-radius:5px;font-weight:700;white-space:nowrap;}
+.mk.pc{background:var(--primary-bg);color:var(--primary);}
+.cell .dn{font-size:9.5px;color:var(--text3);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px;}
+.tag.att{background:#fee2e2;color:var(--red);}
+.tag.att.t-sign{background:#fef3c7;color:var(--orange);}
+.tag.att.t-quiz{background:#ede9fe;color:var(--violet);}
+.tag.att.t-none{background:#f3f4f6;color:var(--text3);}
+
+/* ---------- 作业提醒横幅 ---------- */
+.hwbanner{border-radius:12px;padding:11px 13px;margin-bottom:12px;cursor:pointer;font-size:12.5px;line-height:1.55;}
+.hwbanner.warn{background:var(--red-bg);border:1px solid var(--red-line);color:#991b1b;}
+.hwbanner.soon{background:var(--orange-bg);border:1px solid var(--orange-line);color:#92400e;}
+.hwbanner.calm{background:var(--primary-bg);border:1px solid #dbe6fd;color:#1e40af;}
+.hwb-t{font-size:13px;font-weight:700;display:flex;align-items:baseline;gap:8px;margin-bottom:4px;}
+.hwb-t span{margin-left:auto;font-size:11px;font-weight:500;opacity:.72;}
+.hwb-i{display:flex;gap:7px;align-items:baseline;font-size:12.5px;}
+.hwb-i span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.hwb-i .g{margin-left:auto;font-weight:700;flex:none;white-space:nowrap;}
+.hwb-more{font-size:11px;opacity:.7;margin-top:2px;}
+
+/* ---------- 作业列表 ---------- */
+.hw-grp{font-size:12px;font-weight:700;color:var(--text3);margin:14px 3px 7px;}
+.hw{border:1px solid var(--line);border-radius:11px;padding:10px 12px;margin-bottom:8px;background:#fff;}
+.hw.due-over{background:var(--red-bg);border-color:var(--red-line);}
+.hw.due-today{background:var(--orange-bg);border-color:var(--orange-line);}
+.hw.due-soon{border-color:var(--orange-line);}
+.hw-t{font-size:13.5px;font-weight:600;line-height:1.35;word-break:break-word;}
+.hw-s{font-size:11.5px;color:var(--text3);margin-top:4px;display:flex;align-items:center;gap:9px;flex-wrap:wrap;}
+.hw-cn{color:var(--primary);font-weight:600;}
+.hw.due-over .hw-s{color:#991b1b;}
+.hw.due-today .hw-s{color:#92400e;}
+.hw-s .btn{margin-left:auto;}
+
+/* ---------- tab 角标 ---------- */
+#tabbar button{position:relative;}
+.tabn{position:absolute;top:5px;left:50%;margin-left:4px;min-width:15px;height:15px;line-height:15px;padding:0 4px;border-radius:8px;background:var(--red);color:#fff;font-size:9.5px;font-weight:700;text-align:center;font-style:normal;}
+
+/* ---------- Sheet 备注区 ---------- */
+.sect{margin-top:16px;padding-top:14px;border-top:1px solid var(--line2);}
+.sect-h{font-size:12.5px;font-weight:600;color:var(--text2);margin-bottom:8px;display:flex;align-items:baseline;gap:8px;}
+.sect-h span{margin-left:auto;font-size:11px;font-weight:400;color:var(--text3);}
+.attgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;}
+.attgrid.b3{grid-template-columns:repeat(3,1fr);}
+.attgrid button{border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px 2px;font-size:12px;font-weight:600;cursor:pointer;color:var(--text2);white-space:nowrap;}
+.attgrid button.sel{border-width:2px;padding:8px 1px;}
+.attgrid button:active{background:#f9fafb;}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:-4px 0 12px;}
+.chipx{border:1px solid var(--line);background:#fff;border-radius:20px;padding:4px 10px;font-size:12px;cursor:pointer;color:var(--text2);}
+.chipx:active{background:#f3f4f6;}
+
 @media (max-width:360px){
   .pgrid{gap:5px;}
   .cell{padding:6px 3px;min-height:72px;}
@@ -251,6 +304,17 @@ var STATUS = {
 };
 
 var MEMBER_COLORS = ['#2563eb','#0891b2','#7c3aed','#db2777','#ea580c','#059669'];
+
+/* 老师考勤方式：三种类型（点名 / 签到 / 抽查）+ 不考勤；未标记 = 还不知道 */
+var ATT_TYPES = {
+  roll:{label:'点名', color:'#dc2626', bg:'#fee2e2', cls:''},
+  sign:{label:'签到', color:'#d97706', bg:'#fef3c7', cls:'t-sign'},
+  quiz:{label:'抽查', color:'#7c3aed', bg:'#ede9fe', cls:'t-quiz'},
+  none:{label:'不考勤', color:'#6b7280', bg:'#f3f4f6', cls:'t-none'}
+};
+
+/* 要不要带电脑：三态（要带 / 不用带 / 未标） */
+var PC_OPTS = {y:'要带', n:'不用带', '':'未标'};
 
 /* ================= 存储 ================= */
 var LS_OK = (function(){
@@ -335,7 +399,13 @@ function seedDb(){
       '2026-10-10':{asDay:3, week:5, note:'补第5周周三课'}
     },
     attendance:{},
-    dorm:{}
+    dorm:{},
+    /* 课程备注：键 "周几|大节|课名"，键里不含成员 → 四个人天然共享，改一次全员生效 */
+    courseNotes:{},
+    /* 每日备注：键 "日期|周几|大节|课名"，只对那一天的那节课有效 */
+    dayNotes:{},
+    /* 作业：只记「哪门课的什么作业」，不记录提交情况，交完直接删 */
+    homework:[]
   };
 }
 
@@ -355,6 +425,10 @@ function normalize(){
   if(!db.overrides) db.overrides = {};
   if(!db.attendance) db.attendance = {};
   if(!db.dorm) db.dorm = {};
+  /* 老版本备份里没有下面三个字段，这里补齐（纯增量，不会动已有数据） */
+  if(!db.courseNotes || typeof db.courseNotes !== 'object') db.courseNotes = {};
+  if(!db.dayNotes || typeof db.dayNotes !== 'object') db.dayNotes = {};
+  if(!Array.isArray(db.homework)) db.homework = [];
   db.members.forEach(function(m,i){ if(!m.color) m.color = MEMBER_COLORS[i%MEMBER_COLORS.length]; });
 }
 
@@ -460,6 +534,103 @@ function setDorm(ds, mid, val){
   if(abs.length){ db.dorm[ds] = {absent:abs, reason:rs}; }
   else { delete db.dorm[ds]; }
   saveDb();
+}
+
+/* ================= 课程备注（全宿舍共享） =================
+   课表是「周模板」，四个人各存一份内容相同的课程记录。备注若挂在课程对象上，
+   改一次要同步 4 份 —— 所以备注单独存一张表，键 = 周几|大节|课名。
+   键里不含成员 id，四个人读到的是同一条备注，共享是结构决定的，不靠同步逻辑。
+   每日备注（如「这次点名了」）在同一把键前面再挂一个日期。 */
+function courseSig(day, period, name){
+  return day + '|' + period + '|' + String(name||'').trim();
+}
+function cNote(day, period, name){
+  var v = db.courseNotes[courseSig(day, period, name)];
+  return (v && typeof v === 'object') ? v : {};
+}
+function setCNote(day, period, name, patch){
+  var k = courseSig(day, period, name);
+  var cur = db.courseNotes[k] || {};
+  for(var f in patch){
+    var v = patch[f];
+    if(v === null || v === undefined || v === '') delete cur[f];
+    else cur[f] = v;
+  }
+  if(Object.keys(cur).length) db.courseNotes[k] = cur; else delete db.courseNotes[k];
+  saveDb();
+}
+function dNoteKey(ds, day, period, name){ return ds + '|' + courseSig(day, period, name); }
+function getDNote(ds, day, period, name){ return db.dayNotes[dNoteKey(ds, day, period, name)] || ''; }
+function setDNote(ds, day, period, name, v){
+  var k = dNoteKey(ds, day, period, name);
+  v = String(v||'').trim();
+  if(v) db.dayNotes[k] = v; else delete db.dayNotes[k];
+  saveDb();
+}
+
+/* ================= 作业 =================
+   需求：只记「哪门课的什么作业」，不记录提交情况 —— 交完直接删掉即可，
+   所以数据模型里没有状态字段，提醒完全由「截止日期」驱动。 */
+function hwNewId(){ return 'h' + Date.now() + '_' + Math.floor(Math.random()*1000); }
+function hwDaysLeft(h){
+  return Math.round((parseD(h.due) - parseD(todayStr())) / 86400000);
+}
+function hwState(h){
+  if(!h.due) return 'none';
+  var d = hwDaysLeft(h);
+  if(d < 0) return 'over';
+  if(d === 0) return 'today';
+  if(d <= 3) return 'soon';
+  return 'later';
+}
+function hwStateText(h){
+  if(!h.due) return '未设截止';
+  var d = hwDaysLeft(h);
+  if(d === 0) return '今天截止';
+  return d > 0 ? ('还有 ' + d + ' 天') : ('已逾期 ' + (-d) + ' 天');
+}
+function hwSorted(){
+  return db.homework.slice().sort(function(a,b){
+    if(a.due && b.due) return a.due < b.due ? -1 : (a.due > b.due ? 1 : 0);
+    if(a.due) return -1;
+    if(b.due) return 1;
+    return (a.createdAt||0) - (b.createdAt||0);
+  });
+}
+function hwUrgent(){
+  return hwSorted().filter(function(h){
+    var s = hwState(h);
+    return s === 'over' || s === 'today' || s === 'soon';
+  });
+}
+/* 作业表单里「课程」的可选值：课表里的课名 + 历史作业里记过的课名 */
+function courseNames(){
+  var seen = {}, out = [];
+  db.courses.map(function(c){ return c.name; })
+    .concat(db.homework.map(function(x){ return x.course; }))
+    .forEach(function(n){
+      n = String(n||'').trim();
+      if(n && !seen[n]){ seen[n] = 1; out.push(n); }
+    });
+  return out.sort();
+}
+
+function homeworkBanner(){
+  var u = hwUrgent();
+  var nodue = db.homework.filter(function(h){ return !h.due; }).length;
+  if(!u.length && !nodue) return '';
+  var cls = u.length ? (hwState(u[0]) === 'over' ? 'warn' : 'soon') : 'calm';
+  var h = '<div class="hwbanner ' + cls + '" onclick="App.go(\'homework\')">'
+        +   '<div class="hwb-t">作业提醒<span>' + (u.length + nodue) + ' 项待处理 ›</span></div>';
+  u.slice(0,3).forEach(function(x){
+    h += '<div class="hwb-i">'
+       +   (x.course ? '<b>' + esc(x.course) + '</b>' : '')
+       +   '<span>' + esc(x.title) + '</span>'
+       +   '<span class="g">' + hwStateText(x) + '</span></div>';
+  });
+  if(u.length > 3) h += '<div class="hwb-more">还有 ' + (u.length-3) + ' 项到期作业…</div>';
+  if(nodue) h += '<div class="hwb-more">另有 ' + nodue + ' 项没设截止日期</div>';
+  return h + '</div>';
 }
 
 /* ================= 统计 ================= */
@@ -594,11 +765,13 @@ var state = {
 var ICONS = {
   today:'<svg viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M8 3v3M16 3v3M3 9.5h18"/><path d="M8.5 14.5l2.2 2.2 4.3-4.6"/></svg>',
   dorm:'<svg viewBox="0 0 24 24"><path d="M3.5 10.5L12 3.5l8.5 7"/><path d="M5.5 9.8V20h13V9.8"/><path d="M10 20v-5.5h4V20"/></svg>',
+  homework:'<svg viewBox="0 0 24 24"><path d="M6 3.5h12a1.5 1.5 0 011.5 1.5v15l-3.2-2-3.3 2-3.3-2-3.2 2V5A1.5 1.5 0 016 3.5z"/><path d="M9 8.5h6M9 12h4"/></svg>',
   stats:'<svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
   settings:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 14.5a1.7 1.7 0 00.34 1.87l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.7 1.7 0 00-1.87-.34 1.7 1.7 0 00-1 1.55V21a2 2 0 11-4 0v-.09a1.7 1.7 0 00-1.11-1.55 1.7 1.7 0 00-1.87.34l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.7 1.7 0 00.34-1.87 1.7 1.7 0 00-1.55-1H3a2 2 0 110-4h.09A1.7 1.7 0 004.64 8.9a1.7 1.7 0 00-.34-1.87l-.06-.06a2 2 0 112.83-2.83l.06.06a1.7 1.7 0 001.87.34H9a1.7 1.7 0 001-1.55V3a2 2 0 114 0v.09a1.7 1.7 0 001 1.55 1.7 1.7 0 001.87-.34l.06-.06a2 2 0 112.83 2.83l-.06.06a1.7 1.7 0 00-.34 1.87V9a1.7 1.7 0 001.55 1H21a2 2 0 110 4h-.09a1.7 1.7 0 00-1.51 1z"/></svg>'
 };
 var TABS = [
   {k:'today',  nm:'今日', ic:'today'},
+  {k:'homework',nm:'作业', ic:'homework'},
   {k:'dorm',   nm:'在宿', ic:'dorm'},
   {k:'stats',  nm:'统计', ic:'stats'},
   {k:'settings',nm:'设置', ic:'settings'}
@@ -610,9 +783,12 @@ function renderTop(){
   el.innerHTML = '<h1>宿舍出勤</h1><div class="sub">第 '+wk+' 周 · 开学 '+db.config.semesterStart+'</div>';
 }
 function renderTabs(){
+  var hwN = (db.homework || []).length;
   var el = document.getElementById('tabbar');
   el.innerHTML = TABS.map(function(t){
-    return '<button class="'+(state.tab===t.k?'on':'')+'" onclick="App.go(\''+t.k+'\')">'+ICONS[t.ic]+'<span>'+t.nm+'</span></button>';
+    var badge = (t.k === 'homework' && hwN)
+      ? '<i class="tabn">' + (hwN > 9 ? '9+' : hwN) + '</i>' : '';
+    return '<button class="'+(state.tab===t.k?'on':'')+'" onclick="App.go(\''+t.k+'\')">'+ICONS[t.ic]+'<span>'+t.nm+'</span>'+badge+'</button>';
   }).join('');
 }
 
@@ -624,6 +800,9 @@ function viewToday(){
   var ov = db.overrides[ds] || {};
   var info = resolveDay(ds);
   var h = '';
+
+  /* 作业提醒：与所选日期无关，永远指「现实中的今天」 */
+  h += homeworkBanner();
 
   /* 备份提醒 */
   var lb0 = lsGet(BACKUP_KEY);
@@ -697,9 +876,20 @@ function viewToday(){
     });
 
     var has = items.filter(function(x){ return !!x.c; }).length;
+    /* 大节标题上标出老师考勤方式（同一节次的课，四人签名相同，取第一个即可） */
+    var pAttTag = '';
+    for(var q=0; q<items.length; q++){
+      if(!items[q].c) continue;
+      var nq = cNote(items[q].c.day, items[q].c.period, items[q].c.name);
+      if(nq.att && ATT_TYPES[nq.att]){
+        pAttTag = '<span class="tag att '+ATT_TYPES[nq.att].cls+'">'+esc(ATT_TYPES[nq.att].label)+'</span>';
+        break;
+      }
+    }
     h += '<div class="period'+(has ? '' : ' allfree')+'"><div class="period-head">'
        +   '<span class="period-name">'+esc(db.config.periodNames[p-1])+'</span>'
        +   '<span class="period-time">'+esc(db.config.periodTimes[p-1]||'')+'</span>'
+       +   pAttTag
        +   '<span class="period-meta">'+(has ? (has+'/'+db.members.length+' 有课') : '全宿舍空闲')+'</span>'
        + '</div><div class="pgrid">';
 
@@ -713,9 +903,13 @@ function viewToday(){
       } else {
         var st = getAtt(ds, x.m.id, x.c.id);
         var S = STATUS[st];
+        var nt = cNote(x.c.day, x.c.period, x.c.name);
+        var dn = getDNote(ds, x.c.day, x.c.period, x.c.name);
         h += '<div class="cell '+S.cls+'" onclick="App.openCell(\''+ds+'\',\''+x.m.id+'\',\''+x.c.id+'\')">'
+           +   (nt.pc === 'y' ? '<div class="marks"><span class="mk pc">带电脑</span></div>' : '')
            +   '<div class="m">'+esc(x.m.name)+'</div>'
            +   '<div class="c">'+esc(x.c.name)+'</div>'
+           +   (dn ? '<div class="dn">'+esc(dn)+'</div>' : '')
            +   '<div class="badge">'+S.label+'</div>'
            + '</div>';
       }
@@ -727,6 +921,49 @@ function viewToday(){
      +   '<button class="btn" onclick="App.clearDay(\''+ds+'\')">本日全部记为出勤</button>'
      + '</div>';
 
+  return h;
+}
+
+/* ================= 渲染：作业 ================= */
+function hwItem(x, state){
+  var cls = {over:'due-over', today:'due-today', soon:'due-soon'}[state] || '';
+  return '<div class="hw ' + cls + '">'
+    + '<div class="hw-t">' + esc(x.title) + '</div>'
+    + '<div class="hw-s">'
+    +   (x.course ? '<span class="hw-cn">' + esc(x.course) + '</span>' : '<span>未指定课程</span>')
+    +   '<span>' + (x.due ? (cnDate(x.due) + ' · ' + hwStateText(x)) : '未设截止日期') + '</span>'
+    +   (x.note ? '<span>' + esc(x.note) + '</span>' : '')
+    +   '<button class="btn sm danger" onclick="App.delHomework(\'' + x.id + '\')">删除</button>'
+    + '</div></div>';
+}
+
+function viewHomework(){
+  var all = hwSorted();
+  var grp = {over:[], today:[], soon:[], later:[], none:[]};
+  all.forEach(function(x){ grp[hwState(x)].push(x); });
+
+  var h = '<div class="summary">'
+    + '<div class="sum"><div class="v ' + (grp.over.length ? 'red' : 'gray') + '">' + grp.over.length + '</div><div class="l">已逾期</div></div>'
+    + '<div class="sum"><div class="v ' + (grp.today.length ? 'red' : 'gray') + '">' + grp.today.length + '</div><div class="l">今天截止</div></div>'
+    + '<div class="sum"><div class="v blue">' + all.length + '</div><div class="l">在记作业</div></div>'
+    + '</div>';
+
+  h += '<div class="btn-row" style="margin-bottom:14px">'
+     +   '<button class="btn primary" style="flex:1;padding:11px" onclick="App.addHomework()">＋ 添加作业</button>'
+     + '</div>';
+
+  if(!all.length){
+    h += '<div class="card"><div class="empty-state">还没有作业记录<br>'
+       + '<span style="font-size:12px;color:var(--text3)">上课听到布置作业，顺手记一条；交完直接删掉</span></div></div>';
+    return h;
+  }
+
+  var titles = {over:'已逾期', today:'今天截止', soon:'3 天内到期', later:'以后', none:'未设截止日期'};
+  ['over','today','soon','later','none'].forEach(function(k){
+    if(!grp[k].length) return;
+    h += '<div class="hw-grp">' + titles[k] + ' · ' + grp[k].length + '</div>';
+    grp[k].forEach(function(x){ h += hwItem(x, k); });
+  });
   return h;
 }
 
@@ -1093,7 +1330,7 @@ function viewSettings(){
   h += '<div class="card"><div class="card-head"><div class="card-title">数据</div>'
      + '<div class="card-note">上次导出：'+lbTxt+'</div></div>'
      + '<div style="font-size:12px;color:var(--text3);margin-bottom:10px">'
-     +   '考勤数据保存在本机浏览器里（localStorage）。换设备、清理浏览器数据前请先导出备份文件。'
+     +   '考勤、在宿、课表备注与作业都保存在本机浏览器里（localStorage）。换设备、清理浏览器数据前请先导出备份文件。'
      +   (LS_OK ? '' : '<br><b style="color:var(--red)">当前环境无法本地存储，数据仅保存在内存中，关闭页面即丢失。请通过 http 服务打开。</b>')
      + '</div>'
      + '<div class="btn-row">'
@@ -1106,7 +1343,7 @@ function viewSettings(){
      + '</div>';
 
   h += '<div style="text-align:center;font-size:11.5px;color:var(--text3);padding:6px 0 4px;line-height:1.7">'
-     +   '宿舍出勤统计 · v1<br>' + offlineLabel()
+     +   '宿舍出勤统计 · v2<br>' + offlineLabel()
      + '</div>';
 
   return h;
@@ -1230,7 +1467,7 @@ function esc(s){
 }
 
 /* ================= 主渲染 ================= */
-var VIEWS = {today:viewToday, dorm:viewDorm, stats:viewStats, settings:viewSettings};
+var VIEWS = {today:viewToday, homework:viewHomework, dorm:viewDorm, stats:viewStats, settings:viewSettings};
 
 function render(keepScroll){
   var y = keepScroll ? window.scrollY : 0;
@@ -1262,6 +1499,74 @@ function closeSheet(){
 
 var sheetCtx = {};
 
+/* 原地重画弹层内容（不重播滑入动画），用于弹层内切换选项后刷新 */
+function refreshSheet(html){
+  var root = document.getElementById('sheetRoot');
+  var s = document.getElementById('sheetEl');
+  if(!s || !root.innerHTML){ openSheet(html); return; }
+  var st = s.scrollTop;
+  s.innerHTML = '<div class="sheet-grip"></div>' + html;
+  s.scrollTop = st;
+}
+function selStyle(color, bg){ return 'border-color:'+color+';background:'+bg+';color:'+color; }
+
+/* 这节课的弹层：出勤四态 + 课程备注（考勤方式 / 是否带电脑 / 长期备注 / 当天备注） */
+function cellSheetHtml(){
+  var ds = sheetCtx.ds, mid = sheetCtx.mid, cid = sheetCtx.cid;
+  var c = sheetCtx.c || {name:'', period:1};
+  var m = db.members.filter(function(x){ return x.id===mid; })[0] || {name:'?'};
+  var cur = getAtt(ds, mid, cid);
+  var wk = weekIndex(ds);
+  var nt = cNote(c.day, c.period, c.name);
+  var dn = getDNote(ds, c.day, c.period, c.name);
+
+  var html = '<h3>'+esc(m.name)+' · '+esc(c.name)+'</h3>'
+    + '<div class="sst">'+cnDate(ds)+' '+cnWd(ds)+' · 第 '+wk+' 周 · '
+    + esc(db.config.periodNames[c.period-1]||'')+(c.room?(' · '+esc(c.room)):'')+'</div>'
+    + '<div class="sheet-opts">';
+  ['present','absent','late','leave'].forEach(function(k){
+    html += '<button class="o-'+k+(cur===k?' sel':'')+'" onclick="App.setAtt(\''+k+'\')">'
+          + '<i></i>'+STATUS[k].label+'</button>';
+  });
+  html += '</div>';
+
+  html += '<div class="sect">'
+    + '<div class="sect-h">老师考勤方式<span>全宿舍共享</span></div>'
+    + '<div class="attgrid">';
+  ['roll','sign','quiz','none'].forEach(function(k){
+    var A = ATT_TYPES[k], sel = (nt.att === k);
+    html += '<button class="'+(sel?'sel':'')+'" style="'+(sel?selStyle(A.color, A.bg):'')+'"'
+          + ' onclick="App.setCellAtt(\''+k+'\')">'+A.label+'</button>';
+  });
+  html += '<button class="'+(!nt.att?'sel':'')+'" style="'+(!nt.att?selStyle('#6b7280','#f3f4f6'):'')+'"'
+        + ' onclick="App.setCellAtt(\'\')">未标</button>'
+    + '</div>'
+    + '<div class="sect-h" style="margin-top:13px">要不要带电脑<span>全宿舍共享</span></div>'
+    + '<div class="attgrid b3">';
+  ['y','n',''].forEach(function(v){
+    var sel = (String(nt.pc||'') === v);
+    html += '<button class="'+(sel?'sel':'')+'" style="'+(sel?selStyle('#2563eb','#eff4fe'):'')+'"'
+          + ' onclick="App.setCellPc(\''+v+'\')">'+PC_OPTS[v]+'</button>';
+  });
+  html += '</div>'
+    + '<div class="field" style="margin-top:13px"><label>课程备注（长期有效）</label>'
+    +   '<input id="cn_text" value="'+esc(nt.note||'')+'" placeholder="如：每节课都点名" onchange="App.saveCNoteText(this.value)"></div>'
+    + '<div class="field"><label>'+cnDate(ds)+' 这一次（仅当天）</label>'
+    +   '<input id="dn_text" value="'+esc(dn)+'" placeholder="如：这次收了作业" onchange="App.saveDNoteText(this.value)"></div>'
+    + '</div>';
+
+  html += '<button class="sheet-close" onclick="App.closeSheet()">关闭</button>';
+  return html;
+}
+
+/* 切换选项前，先把输入框里还没提交的文字落库，避免重画时丢掉 */
+function flushCellNotes(){
+  if(!sheetCtx.c) return;
+  var a = document.getElementById('cn_text'), b = document.getElementById('dn_text');
+  if(a) setCNote(sheetCtx.c.day, sheetCtx.c.period, sheetCtx.c.name, {note:(a.value||'').trim()});
+  if(b) setDNote(sheetCtx.ds, sheetCtx.c.day, sheetCtx.c.period, sheetCtx.c.name, b.value);
+}
+
 /* ================= 交互 ================= */
 var App = {
   /* 弹层关闭：HTML 里写的是 onclick="App.closeSheet()"，必须挂到 App 上才可调用 */
@@ -1274,30 +1579,36 @@ var App = {
   setDormDate:function(v){ if(!v) return; state.dormDate = v; render(); },
 
   openCell:function(ds, mid, cid){
-    var m = db.members.filter(function(x){ return x.id===mid; })[0] || {name:'?'};
-    var c = db.courses.filter(function(x){ return x.id===cid; })[0] || {name:''};
+    var c = db.courses.filter(function(x){ return x.id===cid; })[0] || {name:'', period:1};
     var all = resolveDay(ds).courses;
     for(var i=0;i<all.length;i++){
       if(all[i].id === cid && all[i].memberId === mid) c = all[i];
     }
-    var cur = getAtt(ds, mid, cid);
-    sheetCtx = {ds:ds, mid:mid, cid:cid};
-    var wk = weekIndex(ds);
-    var html = '<h3>'+esc(m.name)+' · '+esc(c.name)+'</h3>'
-      + '<div class="sst">'+cnDate(ds)+' '+cnWd(ds)+' · 第 '+wk+' 周 · '
-      + esc(db.config.periodNames[c.period-1]||'')+(c.room?(' · '+esc(c.room)):'')+'</div>'
-      + '<div class="sheet-opts">';
-    ['present','absent','late','leave'].forEach(function(k){
-      html += '<button class="o-'+k+(cur===k?' sel':'')+'" onclick="App.setAtt(\''+k+'\')">'
-            + '<i></i>'+STATUS[k].label+'</button>';
-    });
-    html += '</div><button class="sheet-close" onclick="App.closeSheet()">取消</button>';
-    openSheet(html);
+    sheetCtx = {ds:ds, mid:mid, cid:cid, c:c};
+    openSheet(cellSheetHtml());
   },
   setAtt:function(k){
+    if(sheetCtx.c) flushCellNotes();
     setAtt(sheetCtx.ds, sheetCtx.mid, sheetCtx.cid, k);
     closeSheet();
     render(true);
+  },
+  /* ---- 课程备注（全宿舍共享） ---- */
+  setCellAtt:function(k){
+    flushCellNotes();
+    setCNote(sheetCtx.c.day, sheetCtx.c.period, sheetCtx.c.name, {att: k || null});
+    refreshSheet(cellSheetHtml());
+  },
+  setCellPc:function(v){
+    flushCellNotes();
+    setCNote(sheetCtx.c.day, sheetCtx.c.period, sheetCtx.c.name, {pc: v || null});
+    refreshSheet(cellSheetHtml());
+  },
+  saveCNoteText:function(v){
+    setCNote(sheetCtx.c.day, sheetCtx.c.period, sheetCtx.c.name, {note:v});
+  },
+  saveDNoteText:function(v){
+    setDNote(sheetCtx.ds, sheetCtx.c.day, sheetCtx.c.period, sheetCtx.c.name, v);
   },
   clearDay:function(ds){
     var info = resolveDay(ds);
@@ -1614,6 +1925,56 @@ var App = {
     saveDb(); closeSheet(); render(true);
   },
 
+  /* ---- 作业 ---- */
+  addHomework:function(){
+    var names = courseNames();
+    sheetCtx = {mode:'homework'};
+    openSheet(
+      '<h3>添加作业</h3>'
+      + '<div class="sst">记「哪门课 · 什么作业」；交完在列表里直接删掉，不必维护完成状态</div>'
+      + '<div class="field"><label>课程</label>'
+      +   '<input id="hw_course" list="hw_course_list" autocomplete="off" placeholder="如：高等数学">'
+      +   '<datalist id="hw_course_list">'
+      +     names.map(function(n){ return '<option value="'+esc(n)+'"></option>'; }).join('')
+      +   '</datalist>'
+      + '</div>'
+      + (names.length
+          ? '<div class="chips">' + names.slice(0,8).map(function(n){
+              return '<button type="button" class="chipx" data-n="'+esc(n)+'" onclick="App.pickHwCourse(this)">'+esc(n)+'</button>';
+            }).join('') + '</div>'
+          : '')
+      + '<div class="field"><label>作业内容</label><input id="hw_title" placeholder="如：第三章习题 1-10"></div>'
+      + '<div class="field"><label>截止日期（可选，留空就不进提醒）</label><input type="date" id="hw_due"></div>'
+      + '<div class="field"><label>备注（可选）</label><input id="hw_note" placeholder="如：要交纸质版"></div>'
+      + '<button class="btn primary" style="width:100%;padding:12px;margin-top:2px" onclick="App.saveHomework()">保存</button>'
+      + '<button class="sheet-close" onclick="App.closeSheet()">取消</button>'
+    );
+  },
+  pickHwCourse:function(el){
+    var i = document.getElementById('hw_course');
+    if(i && el) i.value = el.getAttribute('data-n') || '';
+  },
+  saveHomework:function(){
+    var title = (document.getElementById('hw_title').value||'').trim();
+    if(!title){ alert('请填写作业内容'); return; }
+    db.homework.push({
+      id: hwNewId(),
+      course: (document.getElementById('hw_course').value||'').trim(),
+      title: title,
+      due: (document.getElementById('hw_due').value||'').trim(),
+      note: (document.getElementById('hw_note').value||'').trim(),
+      createdAt: Date.now()
+    });
+    saveDb(); closeSheet(); render(true);
+  },
+  delHomework:function(id){
+    var x = db.homework.filter(function(y){ return y.id===id; })[0];
+    if(!x) return;
+    if(!confirm('删除作业「'+x.title+'」？\n（这里不记录提交情况，交完直接删即可）')) return;
+    db.homework = db.homework.filter(function(y){ return y.id!==id; });
+    saveDb(); render(true);
+  },
+
   addOverride:function(kind){
     var ds = prompt('请输入日期（格式 2026-09-20）：', todayStr());
     if(!ds || !/^\d{4}-\d{2}-\d{2}$/.test(ds)) return;
@@ -1685,7 +2046,7 @@ var App = {
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
   },
   resetAll:function(){
-    if(!confirm('将清空所有考勤、在宿记录、课表与成员，恢复为初始状态。此操作不可撤销，确定？')) return;
+    if(!confirm('将清空所有考勤、在宿记录、课表、成员、课程备注与作业，恢复为初始状态。此操作不可撤销，确定？')) return;
     if(!confirm('再确认一次：真的要清空吗？')) return;
     db = seedDb(); saveDb(); render(true);
   }
