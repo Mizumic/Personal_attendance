@@ -179,7 +179,7 @@ button,input,select{font-family:inherit;color:inherit;}
 #tabbar svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
 
 /* ---------- Sheet ---------- */
-#sheetRoot{position:fixed;inset:0;pointer-events:none;z-index:100;}
+#sheetRoot{position:fixed;inset:0;pointer-events:none;z-index:100;transition:bottom .18s ease;}
 .mask{position:absolute;inset:0;background:rgba(17,24,39,.38);opacity:0;transition:opacity .2s;pointer-events:auto;}
 .mask.on{opacity:1;}
 .sheet{
@@ -251,8 +251,18 @@ button,input,select{font-family:inherit;color:inherit;}
 .hwb-more{font-size:11px;opacity:.7;margin-top:2px;}
 
 /* ---------- 作业列表 ---------- */
-.hw-grp{font-size:12px;font-weight:700;color:var(--text3);margin:14px 3px 7px;}
+/* 可折叠的分组标题（作业分组 / 课表管理的成员分组共用） */
+.grp-h{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;color:var(--text2);margin:14px 3px 8px;cursor:pointer;-webkit-user-select:none;user-select:none;}
+.grp-h .grp-arrow{flex:none;width:11px;font-size:10px;color:var(--text3);}
+.grp-h .grp-n{margin-left:auto;font-weight:500;font-size:11.5px;color:var(--text3);}
+.grp-h .btn{margin-left:auto;}
+.grp-h:active{opacity:.6;}
+/* 卡片式的紧凑变体：课表管理里每个成员一行 */
+.grp-h.compact{margin:7px 0;font-size:13px;border:1px solid var(--line);border-radius:10px;padding:10px 11px;background:#fff;}
+.grp-h.compact:active{background:#f9fafb;opacity:1;}
 .hw{border:1px solid var(--line);border-radius:11px;padding:10px 12px;margin-bottom:8px;background:#fff;}
+.hw.done{background:var(--bg);border-color:var(--line2);}
+.hw.done .hw-t{text-decoration:line-through;color:var(--text3);font-weight:500;}
 .hw.due-over{background:var(--red-bg);border-color:var(--red-line);}
 .hw.due-today{background:var(--orange-bg);border-color:var(--orange-line);}
 .hw.due-soon{border-color:var(--orange-line);}
@@ -280,7 +290,7 @@ button,input,select{font-family:inherit;color:inherit;}
    表单越高、弹层就"顶"得越满，手机上体验很差，所以这里宁可横向滑也不要换行。 */
 .chips{display:flex;flex-wrap:nowrap;gap:6px;margin:8px 0 0;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;padding-bottom:1px;}
 .chips::-webkit-scrollbar{height:0;display:none;}
-.chipx{flex:none;border:1px solid var(--line);background:#fff;border-radius:20px;padding:5px 11px;font-size:12.5px;cursor:pointer;color:var(--text2);}
+.chipx{flex:none;border:1px solid var(--line);background:#fff;border-radius:20px;padding:5px 11px;font-size:12.5px;cursor:pointer;color:var(--text2);-webkit-user-select:none;user-select:none;}
 .chipx:active{background:#f3f4f6;}
 .chipx.on{border-color:var(--primary);background:var(--primary-bg);color:var(--primary);font-weight:600;}
 
@@ -330,7 +340,7 @@ button,input,select{font-family:inherit;color:inherit;}
 
 /* ================= 常量 ================= */
 /* 发版时和 sw.js 的 CACHE 版本一起改 —— 设置页会显示它，方便确认手机上是不是新版 */
-var APP_VER = 'v2.2（2026-09-29）';
+var APP_VER = 'v2.3（2026-09-29）';
 var DB_KEY = 'dormAttendance.v1';
 var BACKUP_KEY = 'dormAttendance.lastBackupAt';
 var WD = ['一','二','三','四','五','六','日'];
@@ -473,6 +483,32 @@ function normalize(){
 
 function saveDb(){
   lsSet(DB_KEY, JSON.stringify(db));
+}
+
+/* ================= UI 偏好（折叠状态） =================
+   这些只影响"看起来怎样"，不参与备份与统计，所以单独存一个 key，
+   不混进 db —— 免得导出的备份里带一堆与本机界面有关的杂物。 */
+var UI_KEY = 'dormAttendance.ui';
+var ui = {fold:{}};
+
+function loadUi(){
+  var raw = lsGet(UI_KEY);
+  if(raw){ try{ ui = JSON.parse(raw) || {}; }catch(e){ ui = {}; } }
+  if(!ui || typeof ui !== 'object') ui = {};
+  if(!ui.fold || typeof ui.fold !== 'object') ui.fold = {};
+}
+function saveUi(){ lsSet(UI_KEY, JSON.stringify(ui)); }
+
+/* defFolded = 从没点过时按哪个默认走（作业分组默认展开，课表里的成员默认折叠） */
+function isFolded(key, defFolded){
+  var v = ui.fold[key];
+  return v === undefined ? !!defFolded : v === 1;
+}
+/* 生成一个可点的分组标题。inner 里的按钮记得自带 event.stopPropagation()，别把折叠一起触发 */
+function foldHead(key, defFolded, inner, extraCls){
+  var f = isFolded(key, defFolded);
+  return '<div class="grp-h ' + (extraCls || '') + '" onclick="App.toggleFold(\'' + key + '\',' + (defFolded ? 1 : 0) + ')">'
+       +   '<span class="grp-arrow">' + (f ? '▸' : '▾') + '</span>' + inner + '</div>';
 }
 
 function loadDb(){
@@ -797,8 +833,15 @@ function hwSorted(){
     return (a.createdAt||0) - (b.createdAt||0);
   });
 }
+/* 未完成的作业。提醒横幅、页签角标、列表里的「进行中」都只看这些 */
+function hwActive(){ return hwSorted().filter(function(h){ return !h.done; }); }
+/* 已完成的作业：最近完成的排在前面（归档区默认折叠着，不抢眼） */
+function hwDone(){
+  return db.homework.filter(function(h){ return h.done; })
+    .sort(function(a,b){ return (b.doneAt || 0) - (a.doneAt || 0); });
+}
 function hwUrgent(){
-  return hwSorted().filter(function(h){
+  return hwActive().filter(function(h){
     var s = hwState(h);
     return s === 'over' || s === 'today' || s === 'soon';
   });
@@ -817,7 +860,7 @@ function courseNames(){
 
 function homeworkBanner(){
   var u = hwUrgent();
-  var nodue = db.homework.filter(function(h){ return !h.due; }).length;
+  var nodue = db.homework.filter(function(h){ return !h.done && !h.due; }).length;
   if(!u.length && !nodue) return '';
   var cls = u.length ? (hwState(u[0]) === 'over' ? 'warn' : 'soon') : 'calm';
   var h = '<div class="hwbanner ' + cls + '" onclick="App.go(\'homework\')">'
@@ -983,7 +1026,7 @@ function renderTop(){
   el.innerHTML = '<h1>宿舍出勤</h1><div class="sub">第 '+wk+' 周 · 开学 '+db.config.semesterStart+'</div>';
 }
 function renderTabs(){
-  var hwN = (db.homework || []).length;
+  var hwN = (db.homework || []).filter(function(x){ return !x.done; }).length;
   var el = document.getElementById('tabbar');
   el.innerHTML = TABS.map(function(t){
     var badge = (t.k === 'homework' && hwN)
@@ -1124,46 +1167,70 @@ function viewToday(){
   return h;
 }
 
-/* ================= 渲染：作业 ================= */
-function hwItem(x, state){
-  var cls = {over:'due-over', today:'due-today', soon:'due-soon'}[state] || '';
+/* ================= 渲染：作业 =================
+   作业分两态：进行中（按截止紧急度分组）与已完成（沉底归档）。
+   「完成」只是挂个 done 标记，不删数据 —— 手滑点错了还能恢复。 */
+function hwItem(x, st){
+  var cls = x.done ? 'done' : ({over:'due-over', today:'due-today', soon:'due-soon'}[st] || '');
   return '<div class="hw ' + cls + '">'
     + '<div class="hw-t">' + esc(x.title) + '</div>'
     + '<div class="hw-s">'
     +   (x.course ? '<span class="hw-cn">' + esc(x.course) + '</span>' : '<span>未指定课程</span>')
-    +   '<span>' + (x.due ? (cnDate(x.due) + ' · ' + hwStateText(x)) : '未设截止日期') + '</span>'
+    +   (x.done
+          ? '<span>已完成' + (x.doneAt ? ' · ' + cnDate(fmt(new Date(x.doneAt))) : '') + '</span>'
+          : '<span>' + (x.due ? (cnDate(x.due) + ' · ' + hwStateText(x)) : '未设截止日期') + '</span>')
     +   (x.note ? '<span>' + esc(x.note) + '</span>' : '')
+    +   (x.done
+          ? '<button class="btn sm" onclick="App.undoHomework(\'' + x.id + '\')">恢复</button>'
+          : '<button class="btn sm" onclick="App.doneHomework(\'' + x.id + '\')">完成</button>')
     +   '<button class="btn sm danger" onclick="App.delHomework(\'' + x.id + '\')">删除</button>'
     + '</div></div>';
 }
 
 function viewHomework(){
-  var all = hwSorted();
+  var act = hwActive(), dn = hwDone();
   var grp = {over:[], today:[], soon:[], later:[], none:[]};
-  all.forEach(function(x){ grp[hwState(x)].push(x); });
+  act.forEach(function(x){ grp[hwState(x)].push(x); });
 
   var h = '<div class="summary">'
     + '<div class="sum"><div class="v ' + (grp.over.length ? 'red' : 'gray') + '">' + grp.over.length + '</div><div class="l">已逾期</div></div>'
     + '<div class="sum"><div class="v ' + (grp.today.length ? 'red' : 'gray') + '">' + grp.today.length + '</div><div class="l">今天截止</div></div>'
-    + '<div class="sum"><div class="v blue">' + all.length + '</div><div class="l">在记作业</div></div>'
+    + '<div class="sum"><div class="v blue">' + act.length + '</div><div class="l">在记作业</div></div>'
     + '</div>';
 
-  h += '<div class="btn-row" style="margin-bottom:14px">'
+  h += '<div class="btn-row" style="margin-bottom:6px">'
      +   '<button class="btn primary" style="flex:1;padding:11px" onclick="App.addHomework()">＋ 添加作业</button>'
      + '</div>';
 
-  if(!all.length){
+  if(!act.length && !dn.length){
     h += '<div class="card"><div class="empty-state">还没有作业记录<br>'
-       + '<span style="font-size:12px;color:var(--text3)">上课听到布置作业，顺手记一条；交完直接删掉</span></div></div>';
+       + '<span style="font-size:12px;color:var(--text3)">上课听到布置作业顺手记一条；交完点「完成」，它会沉到下面的归档区</span></div></div>';
     return h;
   }
 
   var titles = {over:'已逾期', today:'今天截止', soon:'3 天内到期', later:'以后', none:'未设截止日期'};
   ['over','today','soon','later','none'].forEach(function(k){
     if(!grp[k].length) return;
-    h += '<div class="hw-grp">' + titles[k] + ' · ' + grp[k].length + '</div>';
-    grp[k].forEach(function(x){ h += hwItem(x, k); });
+    var key = 'hw_' + k;
+    h += foldHead(key, false, '<span>' + titles[k] + '</span><span class="grp-n">' + grp[k].length + ' 项</span>');
+    if(!isFolded(key, false)){
+      grp[k].forEach(function(x){ h += hwItem(x, k); });
+    }
   });
+
+  if(!act.length){
+    h += '<div style="font-size:12px;color:var(--text3);margin:16px 3px 6px">进行中的都清空了 👌</div>';
+  }
+
+  if(dn.length){
+    h += foldHead('hw_done', true, '<span>已完成</span><span class="grp-n">' + dn.length + ' 项</span>');
+    if(!isFolded('hw_done', true)){
+      dn.forEach(function(x){ h += hwItem(x, 'done'); });
+      h += '<div class="btn-row" style="margin-top:4px">'
+         +   '<button class="btn sm danger" onclick="App.clearDoneHomework()">清空归档（' + dn.length + '）</button>'
+         + '</div>';
+    }
+  }
   return h;
 }
 
@@ -1487,25 +1554,31 @@ function viewSettings(){
 
   db.members.forEach(function(m){
     var list = byMember[m.id] || [];
-    h += '<div style="margin-top:6px">'
-       + '<div style="font-size:13px;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:6px">'
-       +   '<span>'+esc(m.name)+'<span style="font-weight:400;color:var(--text3);font-size:11.5px"> · '+list.length+' 门</span></span>'
-       +   ((list.length && db.members.length>1)
-              ? '<button class="btn sm" style="margin-left:auto;font-size:11px;padding:3px 9px" onclick="App.copyCourses(\''+m.id+'\')">复制给…</button>'
-              : '')
-       + '</div>';
-    if(!list.length){ h += '<div style="font-size:12.5px;color:var(--text3);padding:6px 0">还没有课程</div>'; }
-    list.sort(function(a,b){ return a.day-b.day || a.period-b.period; }).forEach(function(x){
-      h += '<div class="row">'
-         +   '<span class="rt" style="font-size:12.5px;width:34px;flex:none;font-weight:500;color:var(--text2)">周'+WD[x.day-1]+'</span>'
-         +   '<span style="font-size:12.5px;width:52px;flex:none;color:var(--text2)">'+esc(db.config.periodNames[x.period-1]||('第'+x.period+'节'))+'</span>'
-         +   '<span style="font-size:12.5px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(x.name)+'</span>'
-         +   '<span class="rs" style="font-size:11px;color:var(--text3);flex:none">'+weekRangeLabel(x)+'</span>'
-         +   '<button class="btn sm danger" onclick="App.delCourse(\''+x.id+'\')">删</button>'
-         + '</div>';
-    });
-    h += '<div style="margin:6px 0 10px"><button class="btn sm" onclick="App.addCourse(\''+m.id+'\')">+ 添加课程</button></div>'
-       + '</div>';
+    var key = 'cm_' + m.id;
+    var folded = isFolded(key, true);          // 课表默认折叠，免得一屏铺满几百行
+    var head = '<span>'+esc(m.name)
+             +   '<span style="font-weight:400;color:var(--text3);font-size:11.5px"> · '+list.length+' 门</span></span>';
+    if(list.length && db.members.length > 1){
+      head += '<button class="btn sm" style="font-size:11px;padding:3px 9px"'
+            + ' onclick="event.stopPropagation();App.copyCourses(\''+m.id+'\')">复制给…</button>';
+    } else {
+      head += '<span class="grp-n">'+list.length+' 门</span>';
+    }
+    h += '<div>' + foldHead(key, true, head, 'compact');
+    if(!folded){
+      if(!list.length){ h += '<div style="font-size:12.5px;color:var(--text3);padding:6px 0 2px">还没有课程</div>'; }
+      list.sort(function(a,b){ return a.day-b.day || a.period-b.period; }).forEach(function(x){
+        h += '<div class="row">'
+           +   '<span class="rt" style="font-size:12.5px;width:34px;flex:none;font-weight:500;color:var(--text2)">周'+WD[x.day-1]+'</span>'
+           +   '<span style="font-size:12.5px;width:52px;flex:none;color:var(--text2)">'+esc(db.config.periodNames[x.period-1]||('第'+x.period+'节'))+'</span>'
+           +   '<span style="font-size:12.5px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(x.name)+'</span>'
+           +   '<span class="rs" style="font-size:11px;color:var(--text3);flex:none">'+weekRangeLabel(x)+'</span>'
+           +   '<button class="btn sm danger" onclick="App.delCourse(\''+x.id+'\')">删</button>'
+           + '</div>';
+      });
+      h += '<div style="margin:6px 0 10px"><button class="btn sm" onclick="App.addCourse(\''+m.id+'\')">+ 添加课程</button></div>';
+    }
+    h += '</div>';
   });
   h += '</div>';
 
@@ -1739,24 +1812,30 @@ function closeSheet(){
 
 var sheetCtx = {};
 
-/* 软键盘弹起时把整个弹层抬到键盘之上。
+/* 软键盘弹起时把弹层抬到键盘之上。
    不处理的话，表单底部的「保存」会被键盘盖住 —— 手指点下去落在键盘上，毫无反应，
    表现得很像"按钮坏了"。
 
-   ⚠️ 判据必须收紧：iOS 上页面滚动、地址栏收放同样会改动 visualViewport，
-   若无条件按它算高度，弹层会被莫名推走（用户会说"弹出来的位置不对、顶到老远"）。
-   所以只在「弹层开着 且 焦点确实落在弹层内的输入框」时才抬升，其余情况一律复位。 */
+   ⚠️ 判据只看「键盘把可视区压掉了多少」，**不要**看焦点在谁身上：
+   之前用 activeElement 判断，用户点一下科目 chip（焦点从输入框转到按钮）就判定"没在输入"、
+   把弹层复位掉，弹层"啪"地掉回屏幕底部 —— 用户的原话是"选完课程弹得很远"。
+   现在只在键盘真的收起时（kb 归零）才复位，并在上移的同时压住弹层高度，
+   免得顶部被顶出屏幕。 */
 (function keyboardLift(){
   var vv = window.visualViewport;
   if(!vv || !vv.addEventListener) return;
   function sync(){
     var root = document.getElementById('sheetRoot');
-    if(!root || !root.innerHTML) return;
-    var ae = document.activeElement;
-    var typing = !!ae && root.contains(ae) && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName);
-    if(!typing){ if(root.style.bottom) root.style.bottom = ''; return; }
+    if(!root || !root.innerHTML) return;          // 没开弹层就别动它
     var kb = Math.round(window.innerHeight - vv.height - vv.offsetTop);
-    root.style.bottom = kb > 60 ? (kb + 'px') : '';
+    var s = document.getElementById('sheetEl');
+    if(kb > 60){
+      if(root.style.bottom !== kb + 'px') root.style.bottom = kb + 'px';
+      if(s) s.style.maxHeight = Math.max(180, Math.round(vv.height) - 20) + 'px';
+    } else {
+      if(root.style.bottom) root.style.bottom = '';
+      if(s && s.style.maxHeight) s.style.maxHeight = '';
+    }
   }
   vv.addEventListener('resize', sync);
   vv.addEventListener('scroll', sync);
@@ -2197,9 +2276,12 @@ var App = {
   addHomework:function(){
     var names = courseNames();
     sheetCtx = {mode:'homework'};
-    /* 科目必须列全。早先这里只渲染前 8 个，课表一多，排在后头的课永远选不到 */
+    /* 科目必须列全。早先这里只渲染前 8 个，课表一多，排在后头的课永远选不到。
+       onmousedown 返回 false 是刻意的：点 chip 时不让输入框失焦，
+       这样软键盘不会收起、弹层也就不会跟着上下跳。 */
     var chipHtml = names.map(function(n){
-      return '<button type="button" class="chipx" data-n="'+esc(n)+'" onclick="App.pickHwCourse(this)">'+esc(n)+'</button>';
+      return '<button type="button" class="chipx" data-n="'+esc(n)+'"'
+           + ' onmousedown="return false" onclick="App.pickHwCourse(this)">'+esc(n)+'</button>';
     }).join('');
     openSheet(
       '<h3>添加作业</h3>'
@@ -2255,9 +2337,37 @@ var App = {
   delHomework:function(id){
     var x = db.homework.filter(function(y){ return y.id===id; })[0];
     if(!x) return;
-    if(!confirm('删除作业「'+x.title+'」？\n（这里不记录提交情况，交完直接删即可）')) return;
+    if(!confirm('彻底删除作业「'+x.title+'」？\n（交完了建议点「完成」归档；删掉就找不回来了）')) return;
     db.homework = db.homework.filter(function(y){ return y.id!==id; });
     saveDb(); render(true);
+  },
+  /* 完成 ≠ 删除：只挂一个 done 标记，沉到下面的归档区，点错了还能恢复 */
+  doneHomework:function(id){
+    var x = db.homework.filter(function(y){ return y.id===id; })[0];
+    if(!x) return;
+    x.done = true;
+    x.doneAt = Date.now();
+    saveDb(); render(true);
+  },
+  undoHomework:function(id){
+    var x = db.homework.filter(function(y){ return y.id===id; })[0];
+    if(!x) return;
+    delete x.done;
+    delete x.doneAt;
+    saveDb(); render(true);
+  },
+  clearDoneHomework:function(){
+    var n = hwDone().length;
+    if(!n) return;
+    if(!confirm('清空已完成归档里的 '+n+' 条作业？\n这一步不可撤销；想留底可以先「导出备份 JSON」。')) return;
+    db.homework = db.homework.filter(function(y){ return !y.done; });
+    saveDb(); render(true);
+  },
+  /* 折叠 / 展开一个分组。状态存在本机（dormAttendance.ui），不进备份文件 */
+  toggleFold:function(key, defFolded){
+    ui.fold[key] = isFolded(key, !!defFolded) ? 0 : 1;
+    saveUi();
+    render(true);
   },
 
   /* ---- 版本更新 ---- */
@@ -2464,6 +2574,7 @@ function offlineLabel(){
 /* ================= 启动 ================= */
 function hashTab(){ return (location.hash || '').replace('#',''); }
 loadDb();
+loadUi();
 initPWA();
 if(VIEWS[hashTab()]) state.tab = hashTab();
 window.addEventListener('hashchange', function(){

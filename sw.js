@@ -6,7 +6,7 @@
  *
  * 发新版本时把 CACHE 的版本号 +1，旧缓存会在 activate 阶段自动清理。
  */
-var CACHE = 'dorm-attendance-v5';
+var CACHE = 'dorm-attendance-v6';
 
 var ASSETS = [
   './',
