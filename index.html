@@ -265,6 +265,24 @@ button,input,select{font-family:inherit;color:inherit;}
 .chipx{border:1px solid var(--line);background:#fff;border-radius:20px;padding:4px 10px;font-size:12px;cursor:pointer;color:var(--text2);}
 .chipx:active{background:#f3f4f6;}
 
+/* ---------- 导入方式选择 ---------- */
+.imode{border:1px solid var(--line);border-radius:12px;padding:12px 13px;margin-bottom:9px;cursor:pointer;}
+.imode:active{background:#f9fafb;}
+.imode .im-t{font-size:14px;font-weight:600;display:flex;align-items:baseline;gap:8px;}
+.imode .im-t em{margin-left:auto;font-style:normal;font-size:11px;font-weight:600;color:var(--primary);background:var(--primary-bg);border-radius:20px;padding:1px 8px;flex:none;}
+.imode .im-d{font-size:11.5px;color:var(--text3);margin-top:5px;line-height:1.55;}
+
+/* ---------- 合并预览 ---------- */
+.pvbar{display:flex;gap:7px;margin-bottom:11px;}
+.pvbar span{flex:1;text-align:center;font-size:12px;font-weight:700;padding:7px 4px;border-radius:9px;}
+.pvbar .a{background:var(--green-bg);color:var(--green);}
+.pvbar .c{background:var(--orange-bg);color:var(--orange);}
+.pvbar .k{background:#f3f4f6;color:var(--text2);}
+.pvlist{border:1px solid var(--line);border-radius:11px;padding:2px 11px;margin-bottom:12px;max-height:40vh;overflow:auto;}
+.pvi{font-size:12.5px;padding:8px 0;border-bottom:1px solid var(--line2);line-height:1.4;}
+.pvi:last-child{border-bottom:0;}
+.pvi .d{display:block;font-size:11.5px;color:var(--text3);margin-top:2px;}
+
 @media (max-width:360px){
   .pgrid{gap:5px;}
   .cell{padding:6px 3px;min-height:72px;}
@@ -566,6 +584,167 @@ function setDNote(ds, day, period, name, v){
   v = String(v||'').trim();
   if(v) db.dayNotes[k] = v; else delete db.dayNotes[k];
   saveDb();
+}
+
+/* ================= 课表合并（导入用） =================
+   安乐的需求：「后面几周的课表可能会不一致」，所以**导入课表不是全覆盖，而是 merge，
+   并且后进的为主**。
+
+   判定「同一个格子」= 同成员 + 同周几 + 同大节。
+   （周次范围与单双周是**记录**的属性，不是格子的身份 —— 一个格子本来就允许有多段课。）
+
+   冲突 = 两段周次有交集，且不是「一个单周一个双周」（那种永远错开，不冲突）。
+   冲突时新的覆盖旧的，但**只截掉重叠的那几周**，不整条删：
+     原「1-17周 高数」被新「8-17周 线代」覆盖 → 原记录缩成「1-7周 高数」，
+     8-17 段由新记录接管。这样「补后几周课表」不会把前面几周一起抹掉。
+
+   ⚠ 「导入课表」走这里；「恢复备份」仍是整体覆盖 —— 两者语义互斥，不要混。
+      （备份恢复要还原成备份那一刻，不能合并。）
+================================================================ */
+var _cidSeq = 0;
+function newCourseId(){ _cidSeq++; return 'c' + Date.now().toString(36) + '_' + _cidSeq.toString(36); }
+
+function cloneCourse(c, patch){
+  var o = {};
+  for(var k in c) if(Object.prototype.hasOwnProperty.call(c, k)) o[k] = c[k];
+  if(patch) for(var k2 in patch) o[k2] = patch[k2];
+  return o;
+}
+/* 两段周次是否有交集 */
+function wkOverlap(a, b){ return a.from <= b.to && b.from <= a.to; }
+/* 单周 vs 双周：永远错开，不算冲突 */
+function parityExclusive(a, b){
+  return (a.type === 'odd'  && b.type === 'even') ||
+         (a.type === 'even' && b.type === 'odd');
+}
+
+/* 算出合并结果（不改动 db），返回 {courses, recs, keepCount} */
+function mergeCoursePlan(incoming){
+  var out = db.courses.slice();      // 与 db.courses 共享对象引用，靠 indexOf 定位后 splice
+  var origIds = {};                  // 只统计"本次导入之前就存在"的记录
+  db.courses.forEach(function(c){ origIds[c.id] = 1; });
+  var touched = {};                  // 被这次导入碰过的原有记录 id
+  var recs = [];
+
+  incoming.forEach(function(nc){
+    /* 1) 先收集所有冲突的旧记录（同一格子 + 周次重叠 + 单双周不互斥） */
+    var hits = [];
+    for(var i=0;i<out.length;i++){
+      var c = out[i];
+      if(c.memberId !== nc.memberId || c.day !== nc.day || c.period !== nc.period) continue;
+      if(!wkOverlap(c, nc) || parityExclusive(c, nc)) continue;
+      hits.push(c);
+    }
+    /* 2) 旧记录只保留"没被覆盖的那几周"，其余段落让给新记录 */
+    var acted = [];
+    hits.forEach(function(old){
+      var i = out.indexOf(old);
+      if(i >= 0) out.splice(i, 1);
+      /* 只把"本来就在 db 里"的记进 touched —— 同一批文本里新加的记录又被打架时，
+         它不该被算成"原有记录被影响"，否则保留数会少算 */
+      if(origIds[old.id]) touched[old.id] = 1;
+      var spans = [];
+      if(old.from < nc.from) spans.push({from: old.from, to: nc.from - 1});
+      if(old.to > nc.to)     spans.push({from: nc.to + 1, to: old.to});
+      var kept = spans.map(function(sp, si){
+        /* 第一段沿用原 id —— 考勤是按课程 id 存的，保 id 才不会让历史记录变孤儿 */
+        return cloneCourse(old, {id: (si === 0 ? old.id : newCourseId()), from: sp.from, to: sp.to});
+      });
+      kept.forEach(function(k){ out.push(k); });
+      acted.push({old: old, kept: kept});
+    });
+    out.push(nc);
+    recs.push({nc: nc, acted: acted});
+  });
+
+  return {courses: out, recs: recs, keepCount: db.courses.length - Object.keys(touched).length};
+}
+
+/* 把计划聚合成可读的行（同一门课 ×4 人只显示一行） */
+function planRows(recs){
+  var order = [], grp = {};
+  recs.forEach(function(r){
+    var nc = r.nc;
+    var key = [nc.day, nc.period, nc.name, nc.from, nc.to, nc.type].join('|');
+    if(!grp[key]){ grp[key] = {nc: nc, memberIds: {}, acted: []}; order.push(key); }
+    grp[key].memberIds[nc.memberId] = 1;
+    grp[key].acted = grp[key].acted.concat(r.acted);
+  });
+  return order.map(function(k){
+    var g = grp[k];
+    return {nc: g.nc, nMembers: Object.keys(g.memberIds).length, acted: g.acted};
+  });
+}
+
+/* 校验并规范化外部课程数据（导入 JSON 用） */
+function normalizeIncoming(src){
+  var res = {ok: [], badMember: 0, invalid: 0};
+  var ids = {};
+  db.members.forEach(function(m){ ids[m.id] = 1; });
+  var maxP = db.config.periodNames.length;
+  (src || []).forEach(function(c){
+    if(!c || typeof c !== 'object'){ res.invalid++; return; }
+    var mid = c.memberId || c.mid || c.member;
+    if(!mid || !ids[mid]){ res.badMember++; return; }
+    var day = parseInt(c.day, 10), p = parseInt(c.period, 10);
+    var name = String(c.name || '').trim();
+    if(!(day >= 1 && day <= 7) || !(p >= 1 && p <= maxP) || !name){ res.invalid++; return; }
+    var from = Math.max(1, parseInt(c.from, 10) || 1);
+    var to = Math.max(from, parseInt(c.to, 10) || db.config.teachingWeeks);
+    res.ok.push({
+      id: newCourseId(), memberId: mid, name: name,
+      room: String(c.room || '').trim(),
+      day: day, period: p, from: from, to: to,
+      type: (c.type === 'odd' || c.type === 'even') ? c.type : 'all'
+    });
+  });
+  return res;
+}
+
+/* 变更预览：新增 N / 调整 M / 保留 K（不预览就直接落库 = 静默删旧数据） */
+function showMergePreview(incoming, unparsed){
+  var res = mergeCoursePlan(incoming);
+  var rows = planRows(res.recs);
+  /* 计数口径：只报"进来几门 / 覆盖了几处 / 多少条原有记录没被动" ——
+     避免"新增 0"这种误导说法（新课落在已有格子里其实是很正常的导入） */
+  var nAdj = 0;
+  rows.forEach(function(r){ nAdj += r.acted.length; });
+
+  var h = '<h3>导入预览</h3>'
+    + '<div class="sst">后进为主：同一格子的旧课被覆盖，但<b>只截掉重叠的那几周</b>，其余周次保留</div>'
+    + '<div class="pvbar">'
+    +   '<span class="a">导入 ' + rows.length + ' 门</span>'
+    +   '<span class="' + (nAdj ? 'c' : 'k') + '">覆盖 ' + nAdj + ' 处</span>'
+    +   '<span class="k">原有 ' + res.keepCount + ' 条不动</span>'
+    + '</div>'
+    + '<div class="pvlist">';
+
+  if(!rows.length){
+    h += '<div class="pvi" style="color:var(--text3)">这次导入没有产生任何变化</div>';
+  }
+  rows.forEach(function(r){
+    var where = '周' + WD[r.nc.day-1] + ' ' + esc(db.config.periodNames[r.nc.period-1] || '') + ' ';
+    var cnt = r.nMembers > 1 ? ('<span style="color:var(--text3)"> ×' + r.nMembers + '人</span>') : '';
+    if(!r.acted.length){
+      h += '<div class="pvi"><span class="tag lesson">新增</span>' + where + esc(r.nc.name) + cnt
+         + '<span class="d">' + esc(weekRangeLabel(r.nc)) + '</span></div>';
+    } else {
+      r.acted.forEach(function(a){
+        var after = a.kept.length
+          ? a.kept.map(function(k){ return weekRangeLabel(k); }).join(' ＋ ')
+          : '整条删除';
+        h += '<div class="pvi"><span class="tag swap">覆盖</span>' + where + esc(r.nc.name) + cnt
+           + '<span class="d">新 ' + esc(weekRangeLabel(r.nc)) + '　原' + esc(weekRangeLabel(a.old))
+           + ' → ' + esc(after) + '</span></div>';
+      });
+    }
+  });
+  h += '</div>';
+
+  if(unparsed) h += '<div class="tip" style="margin-bottom:10px"><div class="tx">另有 ' + unparsed + ' 行文字没识别出来，会被跳过。</div></div>';
+  h += '<button class="btn primary" style="width:100%;padding:12px" onclick="App.confirmMerge()">确认导入</button>'
+     + '<button class="sheet-close" onclick="App.closeSheet()">取消</button>';
+  openSheet(h);
 }
 
 /* ================= 作业 =================
@@ -1274,8 +1453,12 @@ function viewSettings(){
   /* 课表 */
   h += '<div class="card"><div class="card-head"><div class="card-title">课表管理</div>'
      + '<div class="card-note">'+db.courses.length+' 条</div></div>'
-     + '<div class="btn-row" style="margin-bottom:8px">'
+     + '<div class="btn-row" style="margin-bottom:6px">'
      +   '<button class="btn sm primary" onclick="App.bulkImport()">批量导入课表</button>'
+     + '</div>'
+     + '<div style="font-size:11.5px;color:var(--text3);line-height:1.6;margin-bottom:8px">'
+     +   '导入是<b>合并</b>不是覆盖：同一个格子（同人 + 同周几 + 同大节）重叠的周次会被新课顶掉，'
+     +   '其余周次照旧保留 —— 所以「1-7周 A ＋ 8-17周 B」这种分段课表不会被误删。落库前会先给你变更预览。'
      + '</div>';
   var byMember = {};
   db.members.forEach(function(m){ byMember[m.id] = []; });
@@ -1331,11 +1514,12 @@ function viewSettings(){
      + '<div class="card-note">上次导出：'+lbTxt+'</div></div>'
      + '<div style="font-size:12px;color:var(--text3);margin-bottom:10px">'
      +   '考勤、在宿、课表备注与作业都保存在本机浏览器里（localStorage）。换设备、清理浏览器数据前请先导出备份文件。'
+     +   '<br>「导入 JSON」会先让你选：<b>恢复备份</b>（整体覆盖）或<b>只合并课表</b>（后进为主）。'
      +   (LS_OK ? '' : '<br><b style="color:var(--red)">当前环境无法本地存储，数据仅保存在内存中，关闭页面即丢失。请通过 http 服务打开。</b>')
      + '</div>'
      + '<div class="btn-row">'
      +   '<button class="btn primary" onclick="App.exportData()">导出备份 JSON</button>'
-     +   '<button class="btn" onclick="App.importData()">导入备份</button>'
+     +   '<button class="btn" onclick="App.importData()">导入 JSON</button>'
      +   '<button class="btn" onclick="App.exportCsv()">导出出勤明细 CSV</button>'
      +   '<button class="btn danger" onclick="App.resetAll()">清空所有数据</button>'
      + '</div>'
@@ -1846,7 +2030,7 @@ var App = {
     }).join('');
     openSheet(
       '<h3>批量导入课表</h3>'
-      + '<div class="sst">每行一门课，字段顺序随意。先选要导入到哪些成员</div>'
+      + '<div class="sst">每行一门课，字段顺序随意。先选要导入到哪些成员；导入是<b>合并</b>，冲突处后进为主</div>'
       + '<div style="margin-bottom:12px">'+rows+'</div>'
       + '<div class="field"><label>粘贴课表文本</label>'
       +   '<textarea id="bi_text" rows="6" oninput="App.parsePreview()" spellcheck="false"'
@@ -1908,20 +2092,25 @@ var App = {
     var el = document.getElementById('bi_text');
     var r = parseBulkText(el ? el.value : '');
     if(!r.ok.length){ alert('没有可导入的课程，请检查格式'); return; }
-    var desc = r.ok.length+' 门课 × '+targets.length+' 人 = '+(r.ok.length*targets.length)+' 条记录'
-             + (r.errors.length ? '\n另有 '+r.errors.length+' 行无法识别，将被跳过' : '');
-    if(!confirm('将导入：\n\n'+desc+'\n\n确定？')) return;
-    var stamp = Date.now();
-    targets.forEach(function(mid, mi){
-      r.ok.forEach(function(c, ci){
-        db.courses.push({
-          id:'c' + stamp + '_' + mi + '_' + ci,
-          memberId:mid, name:c.name, room:c.room,
-          day:c.day, period:c.period,
-          from:(c.from || 1), to:(c.to || db.config.teachingWeeks), type:c.type
+    /* 走 merge：不冲突就加入，冲突则覆盖同格子重叠的周次（后进为主），不整表替换 */
+    var incoming = [];
+    targets.forEach(function(mid){
+      r.ok.forEach(function(c){
+        incoming.push({
+          id: newCourseId(), memberId: mid, name: c.name, room: c.room,
+          day: c.day, period: c.period,
+          from: (c.from || 1), to: (c.to || db.config.teachingWeeks), type: c.type
         });
       });
     });
+    sheetCtx.pendingCourses = incoming;
+    showMergePreview(incoming, r.errors.length);
+  },
+  confirmMerge:function(){
+    var incoming = sheetCtx.pendingCourses || [];
+    if(!incoming.length){ closeSheet(); return; }
+    db.courses = mergeCoursePlan(incoming).courses;
+    sheetCtx.pendingCourses = null;
     saveDb(); closeSheet(); render(true);
   },
 
@@ -2009,19 +2198,69 @@ var App = {
     lsSet(BACKUP_KEY, String(Date.now()));
     render(true);
   },
-  importData:function(){ document.getElementById('importFile').click(); },
+  /* 导入前先选语义：「恢复备份」= 整体覆盖；「只合并课表」= merge，后进为主。
+     两者互斥，混在一起会把"还原备份"弄坏。 */
+  importData:function(){
+    openSheet(
+      '<h3>导入 JSON 文件</h3>'
+      + '<div class="sst">两种模式语义不同，别选错</div>'
+      + '<div class="imode" onclick="App.pickImport(\'restore\')">'
+      +   '<div class="im-t">恢复备份<em>覆盖全部</em></div>'
+      +   '<div class="im-d">用文件内容整体替换当前数据 —— 考勤、在宿、课程备注、作业全部还原成备份那一刻的样子。换设备或数据丢失后用它。</div>'
+      + '</div>'
+      + '<div class="imode" onclick="App.pickImport(\'merge\')">'
+      +   '<div class="im-t">只合并课表<em>后进为主</em></div>'
+      +   '<div class="im-d">只取文件里的课程。同成员 + 同周几 + 同大节视为同一个格子，重叠的周次被新课覆盖，其余周次保留；其他数据一律不动。补录后几周课表用它。</div>'
+      + '</div>'
+      + '<button class="sheet-close" onclick="App.closeSheet()">取消</button>'
+    );
+  },
+  pickImport:function(mode){
+    sheetCtx.importMode = mode;
+    closeSheet();
+    var inp = document.getElementById('importFile');
+    inp.value = '';
+    inp.click();
+  },
   onImportFile:function(input){
     var f = input.files && input.files[0];
     if(!f) return;
+    var mode = sheetCtx.importMode || 'restore';
     var r = new FileReader();
     r.onload = function(){
-      try{
-        var obj = JSON.parse(r.result);
-        if(!obj || !obj.config || !obj.members) throw new Error('格式不正确');
-        if(!confirm('导入将覆盖当前全部数据，确定继续？')) return;
-        db = obj; normalize(); saveDb(); render(true);
-        alert('导入成功');
-      }catch(e){ alert('导入失败：'+e.message); }
+      var obj;
+      try{ obj = JSON.parse(r.result); }
+      catch(e){ alert('这不是合法的 JSON 文件'); return; }
+      if(!obj){ alert('文件内容是空的'); return; }
+
+      if(mode === 'merge'){
+        var src = Array.isArray(obj) ? obj : obj.courses;
+        if(!Array.isArray(src) || !src.length){
+          alert('这个文件里没有课程数据。\n（合并模式只认 courses 数组；要整体还原请选「恢复备份」）');
+          return;
+        }
+        var r2 = normalizeIncoming(src);
+        var skip = [];
+        if(r2.badMember) skip.push(r2.badMember + ' 条所属成员不在当前名单里');
+        if(r2.invalid)   skip.push(r2.invalid + ' 条缺周几/节次/课名');
+        if(!r2.ok.length){
+          alert('没有可导入的课程。\n' + (skip.length ? ('原因：' + skip.join('；')) : ''));
+          return;
+        }
+        if(skip.length) alert('有 ' + skip.join('，') + '，这些会被跳过。');
+        sheetCtx.pendingCourses = r2.ok;
+        showMergePreview(r2.ok, 0);
+        return;
+      }
+
+      /* 恢复备份：整体覆盖，必须先警告 */
+      if(!obj.config || !obj.members || !Array.isArray(obj.courses)){
+        alert('格式不正确：这不像一份完整备份。\n只想合并课表的话，请重选「只合并课表」。');
+        return;
+      }
+      if(!confirm('恢复备份会覆盖当前全部数据：\n考勤、在宿记录、课程备注、作业都会变成文件里的样子。\n\n确定继续？')) return;
+      db = obj; normalize(); saveDb(); render(true);
+      alert('已恢复备份');
     };
     r.readAsText(f);
     input.value = '';
