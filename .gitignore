@@ -8,3 +8,6 @@ timetable-private.json
 Thumbs.db
 .DS_Store
 desktop.ini
+
+# 实机验证脚手架（_test/verify.py + _test/shots.py 留在本机，不进仓库）
+_test/

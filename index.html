@@ -294,6 +294,44 @@ button,input,select{font-family:inherit;color:inherit;}
 .chipx:active{background:#f3f4f6;}
 .chipx.on{border-color:var(--primary);background:var(--primary-bg);color:var(--primary);font-weight:600;}
 
+/* ---------- 作业表单里的自绘选择器 ----------
+   原生 <datalist> 与 <input type=date> 的弹层都不能放在弹层里：
+   弹层是 position:fixed + transform 的，原生弹层会被它带偏 —— Chrome 干脆渲染到
+   屏幕外（用户看得见"点了没反应"、只能盲点），iOS Safari 则完全不渲染 <datalist>。
+   所以这两处一律自绘，且**在普通流里展开**（不是绝对定位），跟着弹层一起滚，不会被裁掉。 */
+.picklist{display:none;border:1px solid var(--line);border-radius:11px;background:#fff;margin-top:6px;max-height:172px;overflow:auto;}
+/* 输入框内的下拉箭头：整条右侧热区，不用精确点小三角 */
+.field .dd-wrap{position:relative;}
+.field .dd-wrap>input{padding-right:40px;}
+.dd-btn{position:absolute;right:1px;top:1px;bottom:1px;width:38px;border:0;background:none;border-radius:0 9px 9px 0;color:var(--text3);font-size:13px;cursor:pointer;}
+.dd-btn:active{background:#f3f4f6;}
+.picklist.on{display:block;}
+.picklist button{display:block;width:100%;text-align:left;border:0;background:none;padding:10px 12px;font-size:16px;border-bottom:1px solid var(--line2);cursor:pointer;color:var(--text);}
+.picklist button:last-child{border-bottom:0;}
+.picklist button:active{background:#f3f4f6;}
+.picklist button.on{color:var(--primary);font-weight:600;background:var(--primary-bg);}
+.picklist .none{padding:10px 12px;font-size:12.5px;color:var(--text3);line-height:1.5;}
+
+.dp-show{cursor:pointer;color:var(--text);}
+.dp-show::placeholder{color:var(--text3);}
+.dpc{display:none;margin-top:8px;border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff;}
+.dpc.on{display:block;}
+.dpc-h{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.dpc-h button{width:36px;height:36px;flex:none;border:1px solid var(--line);background:#fff;border-radius:10px;font-size:16px;cursor:pointer;line-height:1;color:var(--text2);}
+.dpc-h button:active{background:#f3f4f6;}
+.dpc-h b{flex:1;text-align:center;font-size:14px;font-weight:600;}
+.dpc-w,.dpc-g{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;}
+.dpc-w div{text-align:center;font-size:11px;color:var(--text3);padding:2px 0;}
+.dpc-g button{height:38px;border:0;background:none;border-radius:10px;font-size:14px;cursor:pointer;color:var(--text);}
+.dpc-g button:active{background:#f3f4f6;}
+.dpc-g button.today{color:var(--primary);font-weight:700;box-shadow:inset 0 0 0 1.5px #bfdbfe;}
+.dpc-g button.sel{background:var(--primary);color:#fff;font-weight:700;}
+.dpc-g button.sel:active{background:var(--primary);}
+.dpc-g button.blank{visibility:hidden;}
+.dpc-f{display:flex;gap:7px;margin-top:9px;}
+.dpc-f button{flex:1;border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px;font-size:13px;cursor:pointer;color:var(--text2);}
+.dpc-f button:active{background:#f3f4f6;}
+
 /* ---------- 导入方式选择 ---------- */
 .imode{border:1px solid var(--line);border-radius:12px;padding:12px 13px;margin-bottom:9px;cursor:pointer;}
 .imode:active{background:#f9fafb;}
@@ -340,7 +378,7 @@ button,input,select{font-family:inherit;color:inherit;}
 
 /* ================= 常量 ================= */
 /* 发版时和 sw.js 的 CACHE 版本一起改 —— 设置页会显示它，方便确认手机上是不是新版 */
-var APP_VER = 'v2.3（2026-09-29）';
+var APP_VER = 'v2.4（2026-10-08）';
 var DB_KEY = 'dormAttendance.v1';
 var BACKUP_KEY = 'dormAttendance.lastBackupAt';
 var WD = ['一','二','三','四','五','六','日'];
@@ -2275,7 +2313,7 @@ var App = {
   /* ---- 作业 ---- */
   addHomework:function(){
     var names = courseNames();
-    sheetCtx = {mode:'homework'};
+    sheetCtx = {mode:'homework', calY:0, calM:0};
     /* 科目必须列全。早先这里只渲染前 8 个，课表一多，排在后头的课永远选不到。
        onmousedown 返回 false 是刻意的：点 chip 时不让输入框失焦，
        这样软键盘不会收起、弹层也就不会跟着上下跳。 */
@@ -2287,31 +2325,158 @@ var App = {
       '<h3>添加作业</h3>'
       + '<div class="sst">记「哪门课 · 什么作业」；交完在列表里直接删掉，不必维护完成状态</div>'
       + '<div class="field"><label>课程</label>'
-      +   '<input id="hw_course" list="hw_course_list" autocomplete="off" placeholder="如：高等数学">'
-      +   '<datalist id="hw_course_list">'
-      +     names.map(function(n){ return '<option value="'+esc(n)+'"></option>'; }).join('')
-      +   '</datalist>'
+      +   '<div class="dd-wrap">'
+      +     '<input id="hw_course" autocomplete="off" placeholder="点右侧 ▾ 选课，或直接手打课名"'
+      +       ' onfocus="App.toggleCourseList(true)" onblur="App.toggleCourseList(false)" oninput="App.renderCourseList()">'
+      +     '<button type="button" class="dd-btn" tabindex="-1" onmousedown="return false"'
+      +       ' onclick="App.toggleCourseList(document.getElementById(\'hw_course_dropdown\').classList.contains(\'on\')?false:true)">▾</button>'
+      +   '</div>'
+      /* 自绘下拉：原生 <datalist> 在本弹层里点不出来（iOS 直接不渲染） */
+      +   '<div class="picklist" id="hw_course_dropdown"></div>'
       +   (names.length
             ? '<div class="chips">' + chipHtml + '</div>'
             : '<div class="err on" style="color:var(--text3)">课表里还没有课程，可直接手打课名，或去「设置 → 课表管理」添加</div>')
       + '</div>'
       + '<div class="field"><label>作业内容</label><input id="hw_title" placeholder="如：第三章习题 1-10">'
       +   '<div class="err" id="hw_err">请填写作业内容</div></div>'
-      + '<div class="field"><label>截止日期（可选，留空就不进提醒）</label><input type="date" id="hw_due"></div>'
+      /* 截止日期：原生 <input type=date> 的日历在弹层里会渲染到屏幕外（能盲点、看不见），
+         改成只读文本框 + 自绘月历；值仍以 YYYY-MM-DD 存进 hidden input，读取路径不变。 */
+      + '<div class="field"><label>截止日期（可选，留空就不进提醒）</label>'
+      +   '<input id="hw_due_show" class="dp-show" readonly placeholder="点此选择日期"'
+      +     ' onclick="App.toggleCal()">'
+      +   '<input type="hidden" id="hw_due">'
+      +   '<div class="dpc" id="hw_cal"></div>'
+      + '</div>'
       + '<div class="field"><label>备注（可选）</label><input id="hw_note" placeholder="如：要交纸质版"></div>'
       + '<div class="sheet-act">'
       +   '<button class="btn primary" onclick="App.saveHomework()">保存</button>'
       +   '<button class="sheet-close" onclick="App.closeSheet()">取消</button>'
       + '</div>'
     );
+    App.renderCourseList();
+    App.renderCal();
+  },
+  /* 自绘课程下拉：全量列出（不截断），跟着输入框内容过滤。
+     onblur 收起时用 setTimeout 兜一下 —— 点列表项的 mousedown 会先触发 blur。 */
+  toggleCourseList:function(show){
+    var el = document.getElementById('hw_course_dropdown');
+    if(!el) return;
+    if(show){
+      if(!el.classList.contains('on')){ App.renderCourseList(); el.classList.add('on'); }
+      /* 课程多时下拉会顶到弹层可视区之外，滚一下把它带进视野 */
+      App.scrollSheetTo(el);
+    }else{
+      setTimeout(function(){
+        var a = document.activeElement;
+        if(a && a.id === 'hw_course') return;      // 只是点了一下框内 → 不收
+        el.classList.remove('on');
+      }, 140);
+    }
+  },
+  /* 弹层自身可滚（max-height:88vh + overflow:auto），展开的浮层要滚进来才看得见。
+     ⚠️ 底部的 .sheet-act 是 sticky，它会浮在内容上盖住一截 —— 所以可滚高度要把它让出来，
+     否则月历最后一行和「今天 / 清除」永远藏在保存栏后面。
+     只在"底边超出可滚区"时滚：否则每次展开都把表单顶上去，手感很跳。 */
+  scrollSheetTo:function(el){
+    var sh = document.getElementById('sheetEl');
+    if(!sh || !el) return;
+    var act = sh.querySelector('.sheet-act');
+    var reserve = act ? act.offsetHeight : 0;
+    var room = sh.clientHeight - reserve;
+    var top = el.offsetTop, h = el.offsetHeight;
+    if(top + h > room) sh.scrollTop = Math.max(0, top + h - room + 12);
+  },
+  renderCourseList:function(){
+    var el = document.getElementById('hw_course_dropdown');
+    if(!el) return;
+    var inp = document.getElementById('hw_course');
+    var q = (inp && inp.value || '').trim();
+    var all = courseNames();
+    var hit = q ? all.filter(function(n){ return n.indexOf(q) >= 0; }) : all;
+    var cur = (inp && inp.value || '').trim();
+    var h = '';
+    if(!hit.length){
+      h = '<div class="none">' + (all.length
+              ? '没有匹配「'+esc(q)+'」的课程，可以直接用这个名字'
+              : '课表里还没有课程，可直接手打课名') + '</div>';
+    }else{
+      hit.forEach(function(n){
+        h += '<button type="button" data-n="'+esc(n)+'" class="'+(n===cur?'on':'')+'"'
+           + ' onmousedown="return false" onclick="App.pickHwCourse(this)">'+esc(n)+'</button>';
+      });
+    }
+    el.innerHTML = h;
   },
   pickHwCourse:function(el){
     var i = document.getElementById('hw_course');
     if(!i || !el) return;
-    i.value = el.getAttribute('data-n') || '';
-    /* 给选中的课名一个明确的选中态 —— 不然点完看不出有没有生效 */
+    var v = el.getAttribute('data-n') || '';
+    i.value = v;
+    var dd = document.getElementById('hw_course_dropdown');
+    if(dd) dd.classList.remove('on');
+    /* 给选中的课名一个明确的选中态 —— 不然点完看不出有没有生效。
+       chips 和下拉项是同一份数据，按 data-n 匹配，两边同时点亮。 */
     var all = document.querySelectorAll('.chipx');
-    for(var k=0;k<all.length;k++) all[k].classList.toggle('on', all[k] === el);
+    for(var k=0;k<all.length;k++) all[k].classList.toggle('on', all[k].getAttribute('data-n') === v);
+  },
+  /* ---- 自绘月历 ---- */
+  toggleCal:function(){
+    var el = document.getElementById('hw_cal');
+    if(!el) return;
+    var open = el.classList.contains('on');
+    if(!open){
+      /* 每次展开都对齐到"当前展示的月份"：有选中日期就跳那个月，没有就跳本月 */
+      var cur = (document.getElementById('hw_due').value || '').trim();
+      var d = cur ? parseD(cur) : new Date();
+      sheetCtx.calY = d.getFullYear(); sheetCtx.calM = d.getMonth();
+    }
+    App.renderCal();
+    el.classList.toggle('on', !open);
+    if(!open) App.scrollSheetTo(el);   // 月历较高，滚进可视区
+  },
+  calMove:function(n){
+    var m = sheetCtx.calM + n, y = sheetCtx.calY;
+    while(m < 0){ m += 12; y--; }
+    while(m > 11){ m -= 12; y++; }
+    sheetCtx.calM = m; sheetCtx.calY = y;
+    App.renderCal();
+  },
+  calPick:function(ds){
+    document.getElementById('hw_due').value = ds || '';
+    document.getElementById('hw_due_show').value = ds ? (cnDate(ds) + ' ' + cnWd(ds)) : '';
+    var el = document.getElementById('hw_cal');
+    if(el) el.classList.remove('on');
+  },
+  calToday:function(){ App.calPick(todayStr()); },
+  renderCal:function(){
+    var el = document.getElementById('hw_cal');
+    if(!el) return;
+    if(!sheetCtx.calY){ var n0 = new Date(); sheetCtx.calY = n0.getFullYear(); sheetCtx.calM = n0.getMonth(); }
+    var y = sheetCtx.calY, m = sheetCtx.calM;
+    var first = new Date(y, m, 1);
+    var lead = (first.getDay()+6)%7;                       // 周一为第一列
+    var days = new Date(y, m+1, 0).getDate();
+    var sel = (document.getElementById('hw_due').value || '').trim();
+    var td = todayStr();
+    var h = '<div class="dpc-h">'
+          +   '<button type="button" onclick="App.calMove(-1)" aria-label="上个月">&#8249;</button>'
+          +   '<b>' + y + ' 年 ' + (m+1) + ' 月</b>'
+          +   '<button type="button" onclick="App.calMove(1)" aria-label="下个月">&#8250;</button>'
+          + '</div><div class="dpc-w">';
+    WD.forEach(function(w){ h += '<div>'+w+'</div>'; });
+    h += '</div><div class="dpc-g">';
+    for(var i=0;i<lead;i++) h += '<button class="blank" disabled></button>';
+    for(var d=1;d<=days;d++){
+      var ds = y + '-' + pad2(m+1) + '-' + pad2(d);
+      h += '<button type="button" data-d="'+ds+'" class="'
+         + (ds===sel ? 'sel ' : '') + (ds===td ? 'today' : '') + '"'
+         + ' onclick="App.calPick(this.getAttribute(\'data-d\'))">'+d+'</button>';
+    }
+    h += '</div><div class="dpc-f">'
+      +   '<button type="button" onclick="App.calToday()">今天</button>'
+      +   '<button type="button" onclick="App.calPick(\'\')">清除</button>'
+      + '</div>';
+    el.innerHTML = h;
   },
   saveHomework:function(){
     var ti  = document.getElementById('hw_title');
