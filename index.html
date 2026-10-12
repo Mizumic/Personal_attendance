@@ -378,9 +378,10 @@ button,input,select{font-family:inherit;color:inherit;}
 
 /* ================= 常量 ================= */
 /* 发版时和 sw.js 的 CACHE 版本一起改 —— 设置页会显示它，方便确认手机上是不是新版 */
-var APP_VER = 'v2.4（2026-10-08）';
+var APP_VER = 'v2.5（2026-10-12）';
 var DB_KEY = 'dormAttendance.v1';
 var BACKUP_KEY = 'dormAttendance.lastBackupAt';
+var CLOUD_KEY = 'dormAttendance.cloud';
 var WD = ['一','二','三','四','五','六','日'];
 
 var STATUS = {
@@ -521,6 +522,76 @@ function normalize(){
 
 function saveDb(){
   lsSet(DB_KEY, JSON.stringify(db));
+  scheduleCloudSync();   // 配了云端同步就把作业快照稍后送出去；没配则什么都不做
+}
+
+/* ================= 云端同步（作业快照 → 自建服务器） =================
+   把作业清单同步到自己的服务器（配套 attendance-server/receiver.py），
+   服务器再按你设定的时间检查，把「未完成作业」通过 Bark 推送到手机。
+   - 只传作业数据，不传出勤 / 在宿 / 课表；
+   - 地址与密钥只存本机独立 key（dormAttendance.cloud），不进备份文件；
+   - 没配置时所有函数静默 no-op，不影响原有功能。 */
+var cloudCfg = { url:'', token:'', lastAt:0, lastOk:null, lastErr:'' };
+var _cloudTimer = null, _cloudBusy = false;
+
+function loadCloud(){
+  var raw = lsGet(CLOUD_KEY);
+  if(raw){ try{ var o = JSON.parse(raw); if(o && typeof o === 'object') cloudCfg = o; }catch(e){} }
+  if(!cloudCfg || typeof cloudCfg !== 'object') cloudCfg = {};
+  if(!cloudCfg.url) cloudCfg.url = '';
+  if(!cloudCfg.token) cloudCfg.token = '';
+  if(!cloudCfg.lastAt) cloudCfg.lastAt = 0;
+  if(cloudCfg.lastOk === undefined) cloudCfg.lastOk = null;
+  if(!cloudCfg.lastErr) cloudCfg.lastErr = '';
+}
+function saveCloud(){ lsSet(CLOUD_KEY, JSON.stringify(cloudCfg)); }
+function cloudReady(){ return !!(cloudCfg.url && cloudCfg.token); }
+
+function cloudSnapshot(){
+  return {
+    schema: 1,
+    app: APP_VER,
+    updatedAt: Date.now(),
+    homework: db.homework.map(function(h){
+      return { id:h.id, course:h.course||'', title:h.title||'', due:h.due||'',
+               note:h.note||'', done:!!h.done, doneAt:h.doneAt||0, createdAt:h.createdAt||0 };
+    })
+  };
+}
+/* 数据变更后延迟一小段再上传：连续操作只发最后一份 */
+function scheduleCloudSync(){
+  if(!cloudReady()) return;
+  if(_cloudTimer) clearTimeout(_cloudTimer);
+  _cloudTimer = setTimeout(function(){ _cloudTimer = null; App.cloudSyncNow(); }, 5000);
+}
+/* 校验接口地址，返回空串 = 没问题（独立成函数，方便排查） */
+function cloudUrlProblem(u){
+  if(!u) return '还没填服务器地址';
+  if(!/^https?:\/\//i.test(u)) return '地址要以 http:// 或 https:// 开头';
+  if(location.protocol === 'https:' && /^http:\/\//i.test(u))
+    return '页面是 https，接口也必须是 https（浏览器不允许 https 页面往 http 发数据）';
+  return '';
+}
+function fmtAgo(ts){
+  var s = Math.floor((Date.now() - ts) / 1000);
+  if(s < 5) return '刚刚';
+  if(s < 60) return s + ' 秒前';
+  if(s < 3600) return Math.floor(s/60) + ' 分钟前';
+  if(s < 86400) return Math.floor(s/3600) + ' 小时前';
+  return new Date(ts).toLocaleString('zh-CN', {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
+}
+function cloudStatusText(){
+  if(!cloudReady()) return '尚未配置。部署好服务器后，把接口地址与密钥填到上面，点「立即同步」检查连通性。';
+  if(cloudCfg.lastOk === true && cloudCfg.lastAt)
+    return '上次同步：' + fmtAgo(cloudCfg.lastAt) + ' ✓';
+  if(cloudCfg.lastOk === false)
+    return '上次同步失败：' + esc(cloudCfg.lastErr || '未知原因');
+  return '已配置，尚未同步过 —— 点「立即同步」试试。';
+}
+/* 同步完成 / 配置变化后只刷新这一行状态，不整页重画（免得打断正在输入的框） */
+function refreshCloudStatus(){
+  var el = document.getElementById('cloud_stat');
+  if(el) el.innerHTML = cloudStatusText();
 }
 
 /* ================= UI 偏好（折叠状态） =================
@@ -1639,6 +1710,19 @@ function viewSettings(){
      +   '<button class="btn sm" onclick="App.addOverride(\'swap\')">+ 添加调休补课</button>'
      + '</div></div>';
 
+  /* 云端提醒（作业同步到自建服务器） */
+  h += '<div class="card"><div class="card-head"><div class="card-title">云端提醒</div>'
+     + '<div class="card-note">自建服务器 · 定时推送到手机</div></div>'
+     + '<div style="font-size:11.5px;color:var(--text3);line-height:1.6;margin-bottom:10px">'
+     +   '把作业清单同步到自己的服务器，服务器按你设定的时间检查，把未完成项通过 Bark 推送到手机。'
+     +   '<br>只上传作业数据；地址与密钥只存本机（换设备 / 清缓存后需重填），不进备份文件。'
+     + '</div>'
+     + '<div class="field"><label>服务器接口地址</label><input id="cloud_url" value="'+esc(cloudCfg.url)+'" placeholder="https://你的域名/api/homework" onchange="App.setCloudUrl(this.value)"></div>'
+     + '<div class="field" style="margin-bottom:6px"><label>同步密钥</label><input id="cloud_token" value="'+esc(cloudCfg.token)+'" placeholder="服务器上生成的那一长串密钥" onchange="App.setCloudToken(this.value)"></div>'
+     + '<div class="btn-row"><button class="btn primary" onclick="App.cloudSyncNow()">立即同步</button></div>'
+     + '<div id="cloud_stat" style="font-size:12px;color:var(--text3);margin-top:8px;line-height:1.6">'+cloudStatusText()+'</div>'
+     + '</div>';
+
   /* 数据 */
   var lb = lsGet(BACKUP_KEY);
   var lbTxt = lb ? new Date(+lb).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '从未备份';
@@ -2535,6 +2619,66 @@ var App = {
     render(true);
   },
 
+  /* ---- 云端同步 ---- */
+  setCloudUrl:function(v){
+    cloudCfg.url = (v||'').trim();
+    cloudCfg.lastErr = ''; cloudCfg.lastOk = null;
+    saveCloud(); refreshCloudStatus();
+  },
+  setCloudToken:function(v){
+    cloudCfg.token = (v||'').trim();
+    cloudCfg.lastErr = ''; cloudCfg.lastOk = null;
+    saveCloud(); refreshCloudStatus();
+  },
+  /* 把当前作业快照 POST 到自建服务器。可从按钮 / 定时器 / 启动时多路调用 */
+  cloudSyncNow:function(){
+    /* 设置页开着的话先收走输入框里的值（没点失焦直接按「立即同步」也不丢） */
+    var uEl = document.getElementById('cloud_url');
+    var tEl = document.getElementById('cloud_token');
+    if(uEl) cloudCfg.url = (uEl.value || '').trim();
+    if(tEl) cloudCfg.token = (tEl.value || '').trim();
+    saveCloud();
+    var prob = cloudUrlProblem(cloudCfg.url);
+    if(prob){ cloudCfg.lastOk = false; cloudCfg.lastErr = prob; saveCloud(); refreshCloudStatus(); return; }
+    if(!cloudCfg.token){ cloudCfg.lastOk = false; cloudCfg.lastErr = '还没填同步密钥'; saveCloud(); refreshCloudStatus(); return; }
+    if(_cloudBusy) return;
+    _cloudBusy = true;
+    cloudCfg.lastOk = null; cloudCfg.lastErr = '同步中…';
+    saveCloud(); refreshCloudStatus();
+
+    var opts = {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'X-Auth':cloudCfg.token },
+      body: JSON.stringify(cloudSnapshot())
+    };
+    var to = null;
+    try{
+      var ctrl = new AbortController();
+      opts.signal = ctrl.signal;
+      to = setTimeout(function(){ ctrl.abort(); }, 15000);
+    }catch(e){}
+    var p;
+    try{ p = fetch(cloudCfg.url, opts); }
+    catch(e){ p = Promise.reject(e); }
+    p.then(function(r){
+      if(!r.ok) throw new Error('服务器返回 HTTP ' + r.status);
+      return r.json()['catch'](function(){ return {}; });
+    }).then(function(j){
+      if(j && j.ok === false) throw new Error(j.error || '服务器拒绝了这次同步');
+      cloudCfg.lastAt = Date.now(); cloudCfg.lastOk = true; cloudCfg.lastErr = '';
+    })['catch'](function(e){
+      var m = String((e && e.message) || e || '未知错误');
+      if(/abort/i.test(m)) m = '超时：15 秒没有响应';
+      else if(/Failed to fetch|NetworkError|load failed/i.test(m))
+        m = '连不上：检查地址、https 与服务器是否在运行';
+      cloudCfg.lastOk = false; cloudCfg.lastErr = m;
+    })['then'](function(){
+      if(to) clearTimeout(to);
+      _cloudBusy = false;
+      saveCloud(); refreshCloudStatus();
+    });
+  },
+
   /* ---- 版本更新 ---- */
   /* 手动拉取最新版：清掉页面缓存 + 注销 Service Worker，再带时间戳重载。
      只动缓存与 SW，不碰 localStorage，所以录入的数据是安全的。 */
@@ -2740,6 +2884,7 @@ function offlineLabel(){
 function hashTab(){ return (location.hash || '').replace('#',''); }
 loadDb();
 loadUi();
+loadCloud();
 initPWA();
 if(VIEWS[hashTab()]) state.tab = hashTab();
 window.addEventListener('hashchange', function(){
@@ -2747,6 +2892,8 @@ window.addEventListener('hashchange', function(){
   if(VIEWS[k] && state.tab !== k){ state.tab = k; render(); }
 });
 render();
+/* 配了云端同步的话，打开应用后静默补传一次（把手机上的最新数据推给服务器） */
+if(cloudReady()) setTimeout(function(){ App.cloudSyncNow(); }, 3000);
 
 /* 自检：页面上 onclick 引用的 App.xxx 若未定义，会在控制台报警。
    防止"加了按钮但忘了把处理函数挂到 App 上"这类问题（点下去没反应）。 */
