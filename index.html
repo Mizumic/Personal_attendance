@@ -378,7 +378,7 @@ button,input,select{font-family:inherit;color:inherit;}
 
 /* ================= 常量 ================= */
 /* 发版时和 sw.js 的 CACHE 版本一起改 —— 设置页会显示它，方便确认手机上是不是新版 */
-var APP_VER = 'v2.6（2026-10-13）';
+var APP_VER = 'v2.7（2026-10-13）';
 var DB_KEY = 'dormAttendance.v1';
 var BACKUP_KEY = 'dormAttendance.lastBackupAt';
 var CLOUD_KEY = 'dormAttendance.cloud';
@@ -590,6 +590,20 @@ function cloudStatusText(){
   if(cloudCfg.lastOk === false)
     return '上次同步失败：' + esc(cloudCfg.lastErr || '未知原因');
   return '已配置，尚未同步过 —— 点「立即同步」试试。';
+}
+/* 推送时间的「时 / 分」下拉选项（自绘，替代 iOS 主屏下不弹的原生 time 选择器；5 分钟粒度） */
+function cloudTimeOpts(part){
+  var t = String(cloudCfg.pushTime || '21:30').split(':');
+  var h = parseInt(t[0], 10); if(isNaN(h)) h = 21;
+  var m = parseInt(t[1], 10); if(isNaN(m)) m = 30;
+  m = Math.round(m / 5) * 5; if(m > 55) m = 55;
+  var out = '';
+  if(part === 'h'){
+    for(var i = 0; i < 24; i++) out += '<option value="'+pad2(i)+'"'+(i===h?' selected':'')+'>'+pad2(i)+' 时</option>';
+  } else {
+    for(var j = 0; j < 60; j += 5) out += '<option value="'+pad2(j)+'"'+(j===m?' selected':'')+'>'+pad2(j)+' 分</option>';
+  }
+  return out;
 }
 /* 同步完成 / 配置变化后只刷新这一行状态，不整页重画（免得打断正在输入的框） */
 function refreshCloudStatus(){
@@ -1614,12 +1628,31 @@ function viewSettings(){
   var h = '';
 
   /* 学期 */
+  /* 开学日期用「年 / 月 / 日」三个下拉自绘：
+     iOS 加到主屏后，原生 <input type=date> 的选择器不弹（WebKit 长期 bug，Safari 里却正常），
+     下拉是本应用在手机上验证过最可靠的控件（星期 / 节次一直在用）。 */
+  var _ss = String(c.semesterStart || '2026-09-07').split('-');
+  var ssy = parseInt(_ss[0], 10) || 2026;
+  var ssm = Math.max(1, Math.min(12, parseInt(_ss[1], 10) || 1));
+  var ssd = Math.max(1, parseInt(_ss[2], 10) || 1);
+  var _ssDim = new Date(ssy, ssm, 0).getDate();
+  if(ssd > _ssDim) ssd = _ssDim;
+  var _optY = '', _optM = '', _optD = '';
+  for(var _yy = ssy - 2; _yy <= ssy + 2; _yy++){ _optY += '<option value="'+_yy+'"'+(_yy===ssy?' selected':'')+'>'+_yy+' 年</option>'; }
+  for(var _mm = 1; _mm <= 12; _mm++){ _optM += '<option value="'+_mm+'"'+(_mm===ssm?' selected':'')+'>'+_mm+' 月</option>'; }
+  for(var _dd = 1; _dd <= _ssDim; _dd++){ _optD += '<option value="'+_dd+'"'+(_dd===ssd?' selected':'')+'>'+_dd+' 日</option>'; }
   h += '<div class="card"><div class="card-head"><div class="card-title">学期设置</div></div>'
-     + '<div class="fgrid">'
-     +   '<div class="field"><label>开学第一周的周一</label><input type="date" value="'+c.semesterStart+'" onchange="App.setConfig(\'semesterStart\',this.value)"></div>'
-     +   '<div class="field"><label>教学周数</label><input type="number" min="1" max="30" value="'+c.teachingWeeks+'" onchange="App.setConfig(\'teachingWeeks\',+this.value)"></div>'
+     + '<div class="field"><label>开学第一周的周一</label>'
+     +   '<div class="fgrid3" style="margin:0">'
+     +     '<select id="sem_start_y" onchange="App.setSemesterStart()">'+_optY+'</select>'
+     +     '<select id="sem_start_m" onchange="App.setSemesterStart()">'+_optM+'</select>'
+     +     '<select id="sem_start_d" onchange="App.setSemesterStart()">'+_optD+'</select>'
+     +   '</div>'
      + '</div>'
-     + '<div class="field"><label>学期总周数（含考试周）</label><input type="number" min="1" max="30" value="'+c.totalWeeks+'" onchange="App.setConfig(\'totalWeeks\',+this.value)"></div>'
+     + '<div class="fgrid">'
+     +   '<div class="field" style="margin:0"><label>教学周数</label><input type="number" min="1" max="30" value="'+c.teachingWeeks+'" onchange="App.setConfig(\'teachingWeeks\',+this.value)"></div>'
+     +   '<div class="field" style="margin:0"><label>学期总周数（含考试周）</label><input type="number" min="1" max="30" value="'+c.totalWeeks+'" onchange="App.setConfig(\'totalWeeks\',+this.value)"></div>'
+     + '</div>'
      + '<div style="font-size:11.5px;color:var(--text3)">当前：第 1–'+c.teachingWeeks+' 周为教学周，第 '+(c.teachingWeeks+1)+'–'+c.totalWeeks+' 周为考试周（不排课）。</div>'
      + '</div>';
 
@@ -1722,7 +1755,12 @@ function viewSettings(){
      + '</div>'
      + '<div class="field"><label>服务器接口地址</label><input id="cloud_url" value="'+esc(cloudCfg.url)+'" placeholder="https://你的域名/api/homework" onchange="App.setCloudUrl(this.value)"></div>'
      + '<div class="field"><label>同步密钥</label><input id="cloud_token" value="'+esc(cloudCfg.token)+'" placeholder="服务器上生成的那一长串密钥" onchange="App.setCloudToken(this.value)"></div>'
-     + '<div class="field"><label>推送时间</label><input type="time" id="cloud_time" value="'+esc(cloudCfg.pushTime||'21:30')+'" onchange="App.setCloudPushTime(this.value)"></div>'
+     + '<div class="field"><label>推送时间</label>'
+     +   '<div class="fgrid" style="margin:0">'
+     +     '<select id="cloud_time_h" onchange="App.setCloudPushTime()">'+cloudTimeOpts('h')+'</select>'
+     +     '<select id="cloud_time_m" onchange="App.setCloudPushTime()">'+cloudTimeOpts('m')+'</select>'
+     +   '</div>'
+     + '</div>'
      + '<div style="font-size:11.5px;color:var(--text3);margin:-4px 0 10px">服务器每天在这个时候检查一遍：只要还有未完成的事项、且当天没推过，就推到你手机。改完自动生效。</div>'
      + '<div class="btn-row"><button class="btn primary" onclick="App.cloudSyncNow()">立即同步</button>'
      +   '<button class="btn" onclick="App.cloudTestPush()">测试推送</button></div>'
@@ -2114,6 +2152,20 @@ var App = {
     db.config[k] = v;
     if(db.config.totalWeeks < db.config.teachingWeeks) db.config.totalWeeks = db.config.teachingWeeks;
     saveDb(); render(true);
+  },
+  /* 开学日期由「年 / 月 / 日」三个下拉拼出（自绘，避开 iOS 主屏下不弹的原生 date 选择器）。
+     年 / 月变化后，「日」若超出当月天数（如 1月31日 → 2月）就夹到当月最后一天。 */
+  setSemesterStart:function(){
+    var yEl = document.getElementById('sem_start_y');
+    var mEl = document.getElementById('sem_start_m');
+    var dEl = document.getElementById('sem_start_d');
+    if(!yEl || !mEl || !dEl) return;
+    var y = parseInt(yEl.value, 10) || 2026;
+    var m = Math.max(1, Math.min(12, parseInt(mEl.value, 10) || 1));
+    var d = Math.max(1, parseInt(dEl.value, 10) || 1);
+    var dim = new Date(y, m, 0).getDate();
+    if(d > dim) d = dim;
+    App.setConfig('semesterStart', y + '-' + pad2(m) + '-' + pad2(d));
   },
   setPeriodName:function(i,v){ db.config.periodNames[i] = v || ('第'+(i+1)+'节'); saveDb(); render(true); },
   setPeriodTime:function(i,v){ db.config.periodTimes[i] = v; saveDb(); render(true); },
@@ -2637,12 +2689,14 @@ var App = {
     cloudCfg.lastErr = ''; cloudCfg.lastOk = null;
     saveCloud(); refreshCloudStatus();
   },
-  /* 改推送时间：存本机 + 稍后随下一次同步把新时间捎给服务器（立即生效） */
-  setCloudPushTime:function(v){
-    v = (v||'').trim();
-    if(!/^\d{1,2}:\d{2}$/.test(v)) return;      // 原生 time 控件基本保证格式，容错
-    if(v.length === 4) v = '0' + v;             // 9:05 → 09:05
-    cloudCfg.pushTime = v;
+  /* 改推送时间（从「时 / 分」两个下拉现读）：存本机 + 稍后随下一次同步把新时间捎给服务器（立即生效） */
+  setCloudPushTime:function(){
+    var hEl = document.getElementById('cloud_time_h');
+    var mEl = document.getElementById('cloud_time_m');
+    if(!hEl || !mEl) return;
+    var h = Math.max(0, Math.min(23, parseInt(hEl.value, 10) || 0));
+    var m = Math.max(0, Math.min(55, parseInt(mEl.value, 10) || 0));
+    cloudCfg.pushTime = pad2(h) + ':' + pad2(m);
     saveCloud();
     scheduleCloudSync();
   },
