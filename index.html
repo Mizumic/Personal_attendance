@@ -378,7 +378,7 @@ button,input,select{font-family:inherit;color:inherit;}
 
 /* ================= 常量 ================= */
 /* 发版时和 sw.js 的 CACHE 版本一起改 —— 设置页会显示它，方便确认手机上是不是新版 */
-var APP_VER = 'v2.5（2026-10-12）';
+var APP_VER = 'v2.6（2026-10-13）';
 var DB_KEY = 'dormAttendance.v1';
 var BACKUP_KEY = 'dormAttendance.lastBackupAt';
 var CLOUD_KEY = 'dormAttendance.cloud';
@@ -543,6 +543,7 @@ function loadCloud(){
   if(!cloudCfg.lastAt) cloudCfg.lastAt = 0;
   if(cloudCfg.lastOk === undefined) cloudCfg.lastOk = null;
   if(!cloudCfg.lastErr) cloudCfg.lastErr = '';
+  if(!cloudCfg.pushTime) cloudCfg.pushTime = '21:30';
 }
 function saveCloud(){ lsSet(CLOUD_KEY, JSON.stringify(cloudCfg)); }
 function cloudReady(){ return !!(cloudCfg.url && cloudCfg.token); }
@@ -552,6 +553,8 @@ function cloudSnapshot(){
     schema: 1,
     app: APP_VER,
     updatedAt: Date.now(),
+    /* 本机偏好：服务器按这个时间给你推；随每次同步上传，服务器收到后立即生效 */
+    prefs: { pushTime: cloudCfg.pushTime || '21:30' },
     homework: db.homework.map(function(h){
       return { id:h.id, course:h.course||'', title:h.title||'', due:h.due||'',
                note:h.note||'', done:!!h.done, doneAt:h.doneAt||0, createdAt:h.createdAt||0 };
@@ -1718,9 +1721,13 @@ function viewSettings(){
      +   '<br>只上传作业数据；地址与密钥只存本机（换设备 / 清缓存后需重填），不进备份文件。'
      + '</div>'
      + '<div class="field"><label>服务器接口地址</label><input id="cloud_url" value="'+esc(cloudCfg.url)+'" placeholder="https://你的域名/api/homework" onchange="App.setCloudUrl(this.value)"></div>'
-     + '<div class="field" style="margin-bottom:6px"><label>同步密钥</label><input id="cloud_token" value="'+esc(cloudCfg.token)+'" placeholder="服务器上生成的那一长串密钥" onchange="App.setCloudToken(this.value)"></div>'
-     + '<div class="btn-row"><button class="btn primary" onclick="App.cloudSyncNow()">立即同步</button></div>'
-     + '<div id="cloud_stat" style="font-size:12px;color:var(--text3);margin-top:8px;line-height:1.6">'+cloudStatusText()+'</div>'
+     + '<div class="field"><label>同步密钥</label><input id="cloud_token" value="'+esc(cloudCfg.token)+'" placeholder="服务器上生成的那一长串密钥" onchange="App.setCloudToken(this.value)"></div>'
+     + '<div class="field"><label>推送时间</label><input type="time" id="cloud_time" value="'+esc(cloudCfg.pushTime||'21:30')+'" onchange="App.setCloudPushTime(this.value)"></div>'
+     + '<div style="font-size:11.5px;color:var(--text3);margin:-4px 0 10px">服务器每天在这个时候检查一遍：只要还有未完成的事项、且当天没推过，就推到你手机。改完自动生效。</div>'
+     + '<div class="btn-row"><button class="btn primary" onclick="App.cloudSyncNow()">立即同步</button>'
+     +   '<button class="btn" onclick="App.cloudTestPush()">测试推送</button></div>'
+     + '<div id="cloud_test_msg" style="font-size:12px;color:var(--text3);margin-top:8px;line-height:1.6"></div>'
+     + '<div id="cloud_stat" style="font-size:12px;color:var(--text3);margin-top:4px;line-height:1.6">'+cloudStatusText()+'</div>'
      + '</div>';
 
   /* 数据 */
@@ -2629,6 +2636,59 @@ var App = {
     cloudCfg.token = (v||'').trim();
     cloudCfg.lastErr = ''; cloudCfg.lastOk = null;
     saveCloud(); refreshCloudStatus();
+  },
+  /* 改推送时间：存本机 + 稍后随下一次同步把新时间捎给服务器（立即生效） */
+  setCloudPushTime:function(v){
+    v = (v||'').trim();
+    if(!/^\d{1,2}:\d{2}$/.test(v)) return;      // 原生 time 控件基本保证格式，容错
+    if(v.length === 4) v = '0' + v;             // 9:05 → 09:05
+    cloudCfg.pushTime = v;
+    saveCloud();
+    scheduleCloudSync();
+  },
+  /* 测试推送：调服务器的 /api/test-push，让服务器立刻用你的 Bark 发一条当前清单 */
+  cloudTestPush:function(){
+    var uEl = document.getElementById('cloud_url');
+    var tEl = document.getElementById('cloud_token');
+    var mEl = document.getElementById('cloud_test_msg');
+    function say(t){ if(mEl) mEl.innerHTML = t; }
+    if(uEl) cloudCfg.url = (uEl.value || '').trim();
+    if(tEl) cloudCfg.token = (tEl.value || '').trim();
+    saveCloud();
+    var prob = cloudUrlProblem(cloudCfg.url);
+    if(prob){ say(esc(prob)); return; }
+    if(!cloudCfg.token){ say('还没填同步密钥'); return; }
+    var target;
+    try{ target = new URL(cloudCfg.url).origin + '/api/test-push'; }
+    catch(e){ say('地址格式不对'); return; }
+    say('发送中…（服务器 1–2 秒内发出推送）');
+    var opts = { method:'POST', headers:{ 'X-Auth':cloudCfg.token } };
+    var to = null;
+    try{
+      var ctrl = new AbortController();
+      opts.signal = ctrl.signal;
+      to = setTimeout(function(){ ctrl.abort(); }, 30000);
+    }catch(e){}
+    var p;
+    try{ p = fetch(target, opts); }
+    catch(e){ p = Promise.reject(e); }
+    p.then(function(r){
+      return r.json()['catch'](function(){ return {}; })['then'](function(j){ return { code:r.status, j:j }; });
+    }).then(function(x){
+      var out = String((x.j && x.j.output) || '');
+      if(x.code === 200 && x.j && x.j.ok){
+        say('已推送 ✓ ' + esc(out.split('\n').pop() || ''));
+      } else {
+        say('失败：' + esc((x.j && (x.j.error || x.j.output)) || ('HTTP ' + x.code)));
+      }
+    })['catch'](function(e){
+      var m = String((e && e.message) || e);
+      if(/abort/i.test(m)) m = '超时（30 秒没响应）';
+      else if(/Failed to fetch|NetworkError|load failed/i.test(m)) m = '连不上：检查地址与服务器';
+      say('失败：' + esc(m));
+    })['then'](function(){
+      if(to) clearTimeout(to);
+    });
   },
   /* 把当前作业快照 POST 到自建服务器。可从按钮 / 定时器 / 启动时多路调用 */
   cloudSyncNow:function(){
