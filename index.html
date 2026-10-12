@@ -378,7 +378,7 @@ button,input,select{font-family:inherit;color:inherit;}
 
 /* ================= 常量 ================= */
 /* 发版时和 sw.js 的 CACHE 版本一起改 —— 设置页会显示它，方便确认手机上是不是新版 */
-var APP_VER = 'v2.7（2026-10-13）';
+var APP_VER = 'v2.8（2026-10-13）';
 var DB_KEY = 'dormAttendance.v1';
 var BACKUP_KEY = 'dormAttendance.lastBackupAt';
 var CLOUD_KEY = 'dormAttendance.cloud';
@@ -591,19 +591,13 @@ function cloudStatusText(){
     return '上次同步失败：' + esc(cloudCfg.lastErr || '未知原因');
   return '已配置，尚未同步过 —— 点「立即同步」试试。';
 }
-/* 推送时间的「时 / 分」下拉选项（自绘，替代 iOS 主屏下不弹的原生 time 选择器；5 分钟粒度） */
-function cloudTimeOpts(part){
+/* 推送时间步进后，只刷新大字号显示（不整页重画） */
+function refreshPushTimeShow(){
   var t = String(cloudCfg.pushTime || '21:30').split(':');
-  var h = parseInt(t[0], 10); if(isNaN(h)) h = 21;
-  var m = parseInt(t[1], 10); if(isNaN(m)) m = 30;
-  m = Math.round(m / 5) * 5; if(m > 55) m = 55;
-  var out = '';
-  if(part === 'h'){
-    for(var i = 0; i < 24; i++) out += '<option value="'+pad2(i)+'"'+(i===h?' selected':'')+'>'+pad2(i)+' 时</option>';
-  } else {
-    for(var j = 0; j < 60; j += 5) out += '<option value="'+pad2(j)+'"'+(j===m?' selected':'')+'>'+pad2(j)+' 分</option>';
-  }
-  return out;
+  var hEl = document.getElementById('cloud_time_h_show');
+  var mEl = document.getElementById('cloud_time_m_show');
+  if(hEl) hEl.textContent = t[0] || '21';
+  if(mEl) mEl.textContent = t[1] || '30';
 }
 /* 同步完成 / 配置变化后只刷新这一行状态，不整页重画（免得打断正在输入的框） */
 function refreshCloudStatus(){
@@ -1756,9 +1750,16 @@ function viewSettings(){
      + '<div class="field"><label>服务器接口地址</label><input id="cloud_url" value="'+esc(cloudCfg.url)+'" placeholder="https://你的域名/api/homework" onchange="App.setCloudUrl(this.value)"></div>'
      + '<div class="field"><label>同步密钥</label><input id="cloud_token" value="'+esc(cloudCfg.token)+'" placeholder="服务器上生成的那一长串密钥" onchange="App.setCloudToken(this.value)"></div>'
      + '<div class="field"><label>推送时间</label>'
-     +   '<div class="fgrid" style="margin:0">'
-     +     '<select id="cloud_time_h" onchange="App.setCloudPushTime()">'+cloudTimeOpts('h')+'</select>'
-     +     '<select id="cloud_time_m" onchange="App.setCloudPushTime()">'+cloudTimeOpts('m')+'</select>'
+     +   '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:14px">'
+     +     '<button type="button" class="btn sm" onclick="App.bumpPushTime(-60)" aria-label="小时减一">&minus;</button>'
+     +     '<b id="cloud_time_h_show" style="font-size:18px;min-width:38px;text-align:center">'+esc((cloudCfg.pushTime||'21:30').split(':')[0])+'</b>'
+     +     '<button type="button" class="btn sm" onclick="App.bumpPushTime(60)" aria-label="小时加一">＋</button>'
+     +     '<span>时</span>'
+     +     '<span style="width:12px"></span>'
+     +     '<button type="button" class="btn sm" onclick="App.bumpPushTime(-5)" aria-label="分钟减五">&minus;</button>'
+     +     '<b id="cloud_time_m_show" style="font-size:18px;min-width:38px;text-align:center">'+esc((cloudCfg.pushTime||'21:30').split(':')[1]||'30')+'</b>'
+     +     '<button type="button" class="btn sm" onclick="App.bumpPushTime(5)" aria-label="分钟加五">＋</button>'
+     +     '<span>分</span>'
      +   '</div>'
      + '</div>'
      + '<div style="font-size:11.5px;color:var(--text3);margin:-4px 0 10px">服务器每天在这个时候检查一遍：只要还有未完成的事项、且当天没推过，就推到你手机。改完自动生效。</div>'
@@ -2689,15 +2690,20 @@ var App = {
     cloudCfg.lastErr = ''; cloudCfg.lastOk = null;
     saveCloud(); refreshCloudStatus();
   },
-  /* 改推送时间（从「时 / 分」两个下拉现读）：存本机 + 稍后随下一次同步把新时间捎给服务器（立即生效） */
-  setCloudPushTime:function(){
-    var hEl = document.getElementById('cloud_time_h');
-    var mEl = document.getElementById('cloud_time_m');
-    if(!hEl || !mEl) return;
-    var h = Math.max(0, Math.min(23, parseInt(hEl.value, 10) || 0));
-    var m = Math.max(0, Math.min(55, parseInt(mEl.value, 10) || 0));
+  /* 推送时间加减（自绘步进器 —— 全按钮、零原生控件：
+     iOS 主屏模式下原生 date/time/select 的弹出层都可能"看不见但能盲点"，
+     按钮永远可点、时间数字永远平铺显示）。
+     小时 ±60 分钟、分钟 ±5 分钟，均为循环；改完随下一次同步捎给服务器。 */
+  bumpPushTime:function(deltaMin){
+    var t = String(cloudCfg.pushTime || '21:30').split(':');
+    var h = parseInt(t[0], 10); if(isNaN(h)) h = 21;
+    var m = parseInt(t[1], 10); if(isNaN(m)) m = 30;
+    var total = (((h * 60 + m + deltaMin) % 1440) + 1440) % 1440;
+    h = Math.floor(total / 60);
+    m = total % 60;
     cloudCfg.pushTime = pad2(h) + ':' + pad2(m);
     saveCloud();
+    refreshPushTimeShow();
     scheduleCloudSync();
   },
   /* 测试推送：调服务器的 /api/test-push，让服务器立刻用你的 Bark 发一条当前清单 */
