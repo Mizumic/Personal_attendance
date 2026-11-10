@@ -378,7 +378,7 @@ button,input,select{font-family:inherit;color:inherit;}
 
 /* ================= 常量 ================= */
 /* 发版时和 sw.js 的 CACHE 版本一起改 —— 设置页会显示它，方便确认手机上是不是新版 */
-var APP_VER = 'v2.8（2026-10-13）';
+var APP_VER = 'v2.9（2026-11-11）';
 var DB_KEY = 'dormAttendance.v1';
 var BACKUP_KEY = 'dormAttendance.lastBackupAt';
 var CLOUD_KEY = 'dormAttendance.cloud';
@@ -830,7 +830,8 @@ function mergeCoursePlan(incoming){
       kept.forEach(function(k){ out.push(k); });
       acted.push({old: old, kept: kept});
     });
-    out.push(nc);
+    /* 清除段只负责截断旧记录，自己不落库 —— 否则会多出一门空课 */
+    if(!nc.del) out.push(nc);
     recs.push({nc: nc, acted: acted});
   });
 
@@ -842,7 +843,7 @@ function planRows(recs){
   var order = [], grp = {};
   recs.forEach(function(r){
     var nc = r.nc;
-    var key = [nc.day, nc.period, nc.name, nc.from, nc.to, nc.type].join('|');
+    var key = [nc.day, nc.period, nc.del ? '[del]' : '', nc.name, nc.from, nc.to, nc.type].join('|');
     if(!grp[key]){ grp[key] = {nc: nc, memberIds: {}, acted: []}; order.push(key); }
     grp[key].memberIds[nc.memberId] = 1;
     grp[key].acted = grp[key].acted.concat(r.acted);
@@ -853,7 +854,9 @@ function planRows(recs){
   });
 }
 
-/* 校验并规范化外部课程数据（导入 JSON 用） */
+/* 校验并规范化外部课程数据（导入 JSON 用）
+   del:true 的记录是「清除段」：只把该格子这段周次清掉，不新增课程。
+   有了它才能"只改第 N 周以后"——否则旧记录只被截断，尾部会留下过期课。 */
 function normalizeIncoming(src){
   var res = {ok: [], badMember: 0, invalid: 0};
   var ids = {};
@@ -864,12 +867,13 @@ function normalizeIncoming(src){
     var mid = c.memberId || c.mid || c.member;
     if(!mid || !ids[mid]){ res.badMember++; return; }
     var day = parseInt(c.day, 10), p = parseInt(c.period, 10);
+    var isDel = !!c.del;
     var name = String(c.name || '').trim();
-    if(!(day >= 1 && day <= 7) || !(p >= 1 && p <= maxP) || !name){ res.invalid++; return; }
+    if(!(day >= 1 && day <= 7) || !(p >= 1 && p <= maxP) || (!isDel && !name)){ res.invalid++; return; }
     var from = Math.max(1, parseInt(c.from, 10) || 1);
     var to = Math.max(from, parseInt(c.to, 10) || db.config.teachingWeeks);
     res.ok.push({
-      id: newCourseId(), memberId: mid, name: name,
+      id: newCourseId(), memberId: mid, name: name, del: isDel,
       room: String(c.room || '').trim(),
       day: day, period: p, from: from, to: to,
       type: (c.type === 'odd' || c.type === 'even') ? c.type : 'all'
@@ -884,14 +888,15 @@ function showMergePreview(incoming, unparsed){
   var rows = planRows(res.recs);
   /* 计数口径：只报"进来几门 / 覆盖了几处 / 多少条原有记录没被动" ——
      避免"新增 0"这种误导说法（新课落在已有格子里其实是很正常的导入） */
-  var nAdj = 0;
-  rows.forEach(function(r){ nAdj += r.acted.length; });
+  var nAdj = 0, nDel = 0;
+  rows.forEach(function(r){ nAdj += r.acted.length; if(r.nc.del) nDel++; });
 
   var h = '<h3>导入预览</h3>'
     + '<div class="sst">后进为主：同一格子的旧课被覆盖，但<b>只截掉重叠的那几周</b>，其余周次保留</div>'
     + '<div class="pvbar">'
-    +   '<span class="a">导入 ' + rows.length + ' 门</span>'
+    +   '<span class="a">导入 ' + (rows.length - nDel) + ' 门</span>'
     +   '<span class="' + (nAdj ? 'c' : 'k') + '">覆盖 ' + nAdj + ' 处</span>'
+    +   (nDel ? '<span class="c">清除 ' + nDel + ' 段</span>' : '')
     +   '<span class="k">原有 ' + res.keepCount + ' 条不动</span>'
     + '</div>'
     + '<div class="pvlist">';
@@ -902,6 +907,19 @@ function showMergePreview(incoming, unparsed){
   rows.forEach(function(r){
     var where = '周' + WD[r.nc.day-1] + ' ' + esc(db.config.periodNames[r.nc.period-1] || '') + ' ';
     var cnt = r.nMembers > 1 ? ('<span style="color:var(--text3)"> ×' + r.nMembers + '人</span>') : '';
+    if(r.nc.del){
+      var delDesc = r.acted.length
+        ? r.acted.map(function(a){
+            var after = a.kept.length
+              ? a.kept.map(function(k){ return weekRangeLabel(k); }).join(' ＋ ')
+              : '整条清空';
+            return '原' + weekRangeLabel(a.old) + ' → ' + after;
+          }).join('；')
+        : '这个格子里本来就没有课';
+      h += '<div class="pvi"><span class="tag swap">清除</span>' + where
+         + '<span class="d">' + esc(weekRangeLabel(r.nc)) + '　' + esc(delDesc) + '</span></div>';
+      return;
+    }
     if(!r.acted.length){
       h += '<div class="pvi"><span class="tag lesson">新增</span>' + where + esc(r.nc.name) + cnt
          + '<span class="d">' + esc(weekRangeLabel(r.nc)) + '</span></div>';
@@ -2877,7 +2895,7 @@ var App = {
       + '</div>'
       + '<div class="imode" onclick="App.pickImport(\'merge\')">'
       +   '<div class="im-t">只合并课表<em>后进为主</em></div>'
-      +   '<div class="im-d">只取文件里的课程。同成员 + 同周几 + 同大节视为同一个格子，重叠的周次被新课覆盖，其余周次保留；其他数据一律不动。补录后几周课表用它。</div>'
+      +   '<div class="im-d">只取文件里的课程。同成员 + 同周几 + 同大节视为同一个格子，重叠的周次被新课覆盖，其余周次保留；其他数据一律不动。补录后几周课表用它。<br>条目带 <b>del:true</b> 时只清空那几周，不新增课程。</div>'
       + '</div>'
       + '<button class="sheet-close" onclick="App.closeSheet()">取消</button>'
     );
