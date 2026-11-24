@@ -273,6 +273,25 @@ button,input,select{font-family:inherit;color:inherit;}
 .hw.due-today .hw-s{color:#92400e;}
 .hw-s .btn{margin-left:auto;}
 
+/* ---------- 一句话录入 ---------- */
+/* 平时收起，只在点了「一句话」时展开 —— 表单本来就长，不额外占地方。
+   输入框字号 16px 是硬要求：低于它 iOS 聚焦时会放大整页。 */
+.qk{display:none;margin:-2px 0 10px;}
+.qk.on{display:block;}
+.qk-row{display:flex;gap:7px;align-items:stretch;}
+.qk-row input{flex:1;min-width:0;padding:11px 12px;border:1px solid var(--line);border-radius:11px;font-size:16px;background:var(--card);color:var(--text);}
+.qk-row input:focus{outline:none;border-color:var(--primary);}
+.qk-mic{flex:none;width:44px;border:1px solid var(--line);border-radius:11px;background:var(--card);font-size:18px;line-height:1;cursor:pointer;color:var(--text2);}
+.qk-mic:active{background:#f3f4f6;}
+.qk-mic.rec{background:var(--red-bg);border-color:var(--red-line);color:var(--red);animation:qpulse 1.1s ease-in-out infinite;}
+@keyframes qpulse{0%,100%{opacity:1}50%{opacity:.45}}
+.qk-mic.busy{color:var(--text3);}
+.qk-hint{font-size:11.5px;color:var(--text3);margin:7px 3px 0;line-height:1.5;}
+.qk-echo{display:none;margin:8px 0 0;padding:9px 11px;border-radius:10px;background:var(--primary-bg);font-size:12px;color:var(--primary);line-height:1.6;word-break:break-word;}
+.qk-echo.on{display:block;}
+.qk-echo .qk-t{color:var(--text2);}
+.qk-echo .qk-w{color:var(--red);}
+
 /* ---------- tab 角标 ---------- */
 #tabbar button{position:relative;}
 .tabn{position:absolute;top:5px;left:50%;margin-left:4px;min-width:15px;height:15px;line-height:15px;padding:0 4px;border-radius:8px;background:var(--red);color:#fff;font-size:9.5px;font-weight:700;text-align:center;font-style:normal;}
@@ -378,10 +397,11 @@ button,input,select{font-family:inherit;color:inherit;}
 
 /* ================= 常量 ================= */
 /* 发版时和 sw.js 的 CACHE 版本一起改 —— 设置页会显示它，方便确认手机上是不是新版 */
-var APP_VER = 'v2.9（2026-11-11）';
+var APP_VER = 'v2.10（2026-11-19）';
 var DB_KEY = 'dormAttendance.v1';
 var BACKUP_KEY = 'dormAttendance.lastBackupAt';
 var CLOUD_KEY = 'dormAttendance.cloud';
+var ASR_KEY = 'dormAttendance.asr';
 var WD = ['一','二','三','四','五','六','日'];
 
 var STATUS = {
@@ -547,6 +567,28 @@ function loadCloud(){
 }
 function saveCloud(){ lsSet(CLOUD_KEY, JSON.stringify(cloudCfg)); }
 function cloudReady(){ return !!(cloudCfg.url && cloudCfg.token); }
+
+/* ================= 语音识别（DeepSeek ASR） =================
+   直连官方接口，不经过任何中转：
+   - 跨域是官方开放的（OPTIONS 会回显 Origin），Bearer 鉴权，不需要在本地算签名；
+   - DeepSeek 只收 16-bit PCM WAV 或 Ogg Opus，而手机录出来是 webm/mp4，
+     所以先解码再重采样成 16k 单声道、自己拼 WAV 头（见 asrToWav）；
+   - Key 只存本机独立 key（dormAttendance.asr），不进备份文件、不随云端同步上传。
+
+   为什么敢把 Key 放前端：这是单人自用的离线 PWA，Key 由你本人填在设置里、
+   只落在你自己手机的 localStorage，页面源码里没有它。官方开源的 chat demo
+   也是同一套做法。**不要把带 Key 的备份文件发给别人。** */
+var asrCfg = { key:'' };
+var _rec = null, _recChunks = [], _recStream = null, _recStartAt = 0, _recTimer = null;
+
+function loadAsr(){
+  var raw = lsGet(ASR_KEY);
+  if(raw){ try{ var o = JSON.parse(raw); if(o && typeof o === 'object') asrCfg = o; }catch(e){} }
+  if(!asrCfg || typeof asrCfg !== 'object') asrCfg = {};
+  if(!asrCfg.key) asrCfg.key = '';
+}
+function saveAsr(){ lsSet(ASR_KEY, JSON.stringify(asrCfg)); }
+function asrReady(){ return !!asrCfg.key; }
 
 function cloudSnapshot(){
   return {
@@ -940,6 +982,260 @@ function showMergePreview(incoming, unparsed){
   h += '<button class="btn primary" style="width:100%;padding:12px" onclick="App.confirmMerge()">确认导入</button>'
      + '<button class="sheet-close" onclick="App.closeSheet()">取消</button>';
   openSheet(h);
+}
+
+/* ================= 一句话 → 作业字段 =================
+   把一句自然语言拆成 {course,title,due}，用来预填「添加作业」表单。
+   纯本地规则，不联网：课程名对课表/历史作业做模糊命中，日期走相对词表，
+   剩下的当内容。刻意不接模型 —— 作业句式的语义空间很窄，规则更准、零延迟，
+   而且纯打字时连一次网络都不用发（只有真按了麦克风才走 ASR）。
+
+   刻意不猜：没提课程就留空，没提日期就不填。预填错一个字段比错一片好改。 */
+
+var HW_CN_NUM = {'一':1,'两':2,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10};
+
+function hwNum(s){
+  s = String(s === null || s === undefined ? '' : s).trim();
+  if(/^\d+$/.test(s)) return +s;
+  if(s === '十') return 10;
+  if(s.charAt(0) === '十') return 10 + (HW_CN_NUM[s.charAt(1)] || 0);          // 十一 … 十九
+  if(s.charAt(1) === '十') return (HW_CN_NUM[s.charAt(0)] || 0) * 10 + (HW_CN_NUM[s.charAt(2)] || 0);
+  return HW_CN_NUM[s] || 0;
+}
+
+/* 课名 → 核心词干：「A与B」只取 A，再依次剥掉常见尾缀（原理 / 动力学 / 学 / 技术 …）。
+   留一份由长到短的候选，匹配时用命中的最长那个，避免「××学」和「××」互相盖住。 */
+function hwStems(name){
+  var out = [], head = String(name || '').split(/[与及和、]/)[0];
+  out.push(head);
+  var tails = ['动力学','统计学','学','原理','技术','基础','导论','概论','控制','设计','分析'];
+  tails.forEach(function(t){
+    var cur = out[out.length - 1];
+    if(cur.length - t.length >= 2 && cur.slice(-t.length) === t) out.push(cur.slice(0, -t.length));
+  });
+  return out;
+}
+
+/* 缩写（少说中间几个字）整名和词干都对不上，用两字窗重合度兜一层。
+   要求至少命中 2 个窗、覆盖率 ≥ 30% —— 单个「力学」之类不会误触发。
+   返回 {name, span}：span 是原文里真正命中的那一段，清内容时要按它删，
+   不能按课名全长删 —— 说「高数」命中「高等数学」时，原文里并没有「高等数学」四个字。 */
+function hwCourseHitInfo(text){
+  var names = courseNames(), best = '', bestSpan = '', bestScore = 0;
+  names.forEach(function(n){
+    if(!n) return;
+    var score = 0, span = '', i;
+    if(text.indexOf(n) >= 0){
+      score = 100 + n.length; span = n;                    // 全名原样出现，最强
+    }else{
+      var stems = hwStems(n);
+      for(i = 0; i < stems.length; i++){
+        if(stems[i].length >= 2 && text.indexOf(stems[i]) >= 0){
+          score = Math.max(score, 60 + stems[i].length); span = stems[i];
+          break;
+        }
+      }
+      if(!score && n.length >= 4){
+        var total = n.length - 1, hit = 0;
+        for(i = 0; i < total; i++){ if(text.indexOf(n.substr(i, 2)) >= 0) hit++; }
+        if(hit >= 2 && hit / total >= 0.3){ score = 30 + hit; span = ''; }
+      }
+    }
+    if(score > bestScore){ bestScore = score; best = n; bestSpan = span; }
+  });
+  return {name: best, span: bestSpan};
+}
+function hwCourseHit(text){ return hwCourseHitInfo(text).name; }
+
+/* 返回 {due:'YYYY-MM-DD', span:'被吃掉的那段原文'}；没提日期返回 null */
+function hwParseDue(text, base){
+  base = base ? new Date(base.getFullYear(), base.getMonth(), base.getDate()) : new Date();
+  var m;
+
+  /* 1) 绝对日期 */
+  if((m = text.match(/(\d{4})-(\d{1,2})-(\d{1,2})/)))
+    return {due: m[1] + '-' + pad2(+m[2]) + '-' + pad2(+m[3]), span: m[0]};
+  if((m = text.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]/)))
+    return {due: base.getFullYear() + '-' + pad2(+m[1]) + '-' + pad2(+m[2]), span: m[0]};
+
+  /* 2) 周几：「下下周三 / 下周三 / 这周三 / 周三」，连同后面的「前 / 之前」一起吃掉 */
+  if((m = text.match(/(下下|下|这|本)?\s*(?:周|星期|礼拜)\s*([一二三四五六日天])\s*(?:之前|以前|前)?/))){
+    var wd = {'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'日':7,'天':7}[m[2]];
+    var delta = wd - isoWd(base);
+    if(m[1] === '下') delta += 7;
+    else if(m[1] === '下下') delta += 14;
+    else if(delta < 0) delta += 7;                  // 本周这天已经过了 → 顺延到下个同一天
+    return {due: fmt(addDays(base, delta)), span: m[0]};
+  }
+
+  /* 3) N 周 / N 天 / 半个月 / N 个月之后 */
+  if((m = text.match(/([一两二三四五六七八九十\d]{1,2})\s*(?:个)?\s*周\s*(?:之?后|以后)/))){
+    var w = hwNum(m[1]);
+    if(w) return {due: fmt(addDays(base, w * 7)), span: m[0]};
+  }
+  if((m = text.match(/([一两二三四五六七八九十\d]{1,2})\s*天\s*(?:之?后|以后)/))){
+    var d1 = hwNum(m[1]);
+    if(d1) return {due: fmt(addDays(base, d1)), span: m[0]};
+  }
+  if((m = text.match(/半个月\s*(?:之?后|以后)?/)))
+    return {due: fmt(addDays(base, 15)), span: m[0]};
+  if((m = text.match(/([一两二三四五六七八九十\d]{1,2})\s*个月\s*(?:之?后|以后)?/))){
+    var mo = hwNum(m[1]);
+    if(mo) return {due: fmt(new Date(base.getFullYear(), base.getMonth() + mo, base.getDate())), span: m[0]};
+  }
+
+  /* 4) 今天 / 明天 / 后天 */
+  if(/大后天/.test(text)) return {due: fmt(addDays(base, 3)), span: '大后天'};
+  if(/后天/.test(text))   return {due: fmt(addDays(base, 2)), span: '后天'};
+  if(/明天|明日/.test(text)) return {due: fmt(addDays(base, 1)), span: '明天'};
+  if(/今天|今日/.test(text)) return {due: fmt(base), span: '今天'};
+
+  /* 5) 月底 / 月末 */
+  if((m = text.match(/月底|月末/)))
+    return {due: fmt(new Date(base.getFullYear(), base.getMonth() + 1, 0)), span: m[0]};
+
+  return null;
+}
+
+function hwCleanTitle(text, course, courseSpan, dueSpan){
+  var s = text;
+  if(courseSpan){
+    s = s.split(courseSpan).join(' ');
+  }else if(course){
+    /* 靠两字窗命中的（span 空），退回按课名和词干各剥一刀 */
+    s = s.split(course).join(' ');
+    hwStems(course).forEach(function(st){ if(st.length >= 2) s = s.split(st).join(' '); });
+  }
+  if(dueSpan) s = s.split(dueSpan).join(' ');
+
+  /* 只剥多字框架词，不剥裸的「交 / 的」—— 那会把内容咬出洞 */
+  ['我有一个','我有个','有个','帮我记一下','帮我记','记一下','记一条作业','记一条',
+   '记得提醒我','记得','提醒我','这个作业','作业是','的作业','作业','需要交','要交',
+   '得交','得上交','上交','提交','内容是','内容','就是','大概是','然后','顺便','另外'
+  ].forEach(function(w){ s = s.split(w).join(' '); });
+
+  s = s.replace(/[，。；、,.;:：!！?？~～\s]+/g, ' ').trim();
+  s = s.replace(/^(?:截止|要|的|是|交)\s*/, '');
+  /* 「周五前交」会连着剩两个后缀，剥一次不够；最多剥三次，多一层都不行就停 */
+  for(var k = 0; k < 3; k++){
+    var t = s.replace(/\s*(?:之前|以前|前|交|了|的)$/, '').trim();
+    if(t === s) break;
+    s = t;
+  }
+  return s.trim();
+}
+
+/* 回显的 HTML：一句话拆成了什么，进表单之前就能看见。
+   必须在渲染时直接生成（而不是等 echoQuick 二次写 DOM）——
+   页面任何一次重绘都会重建这段 DOM，二次写的会丢。 */
+function hwQuickEchoHtml(raw){
+  raw = String(raw || '').trim();
+  if(!raw) return '';
+  var p = parseHomeworkText(raw);
+  if(!p) return '';
+  return '→ ' + esc(p.course || '课程没认出来')
+    + '　·　' + (p.due ? esc(cnDate(p.due) + ' ' + cnWd(p.due)) : '没说截止日')
+    + '<br><span class="qk-t">' + esc(p.title || '内容留空') + '</span>';
+}
+
+/* 对外只用这一个 */
+function parseHomeworkText(raw, base){
+  var text = String(raw === null || raw === undefined ? '' : raw)
+    .replace(/[０-９]/g, function(c){ return String.fromCharCode(c.charCodeAt(0) - 65248); })
+    .replace(/\s+/g, ' ')
+    .trim();
+  if(!text) return null;
+
+  var due = hwParseDue(text, base);
+  var ch = hwCourseHitInfo(text);
+  var course = ch.name;
+  var title = hwCleanTitle(text, course, ch.span, due ? due.span : '');
+
+  /* 剥空了就退回原句（只去掉课名和日期段）—— 宁可贵几个字，也不要空标题 */
+  if(!title){
+    title = text;
+    if(ch.span) title = title.split(ch.span).join(' ');
+    if(due)     title = title.split(due.span).join(' ');
+    title = title.replace(/\s+/g, ' ').trim() || text;
+  }
+  return {course: course, title: title, due: due ? due.due : ''};
+}
+
+/* ================= 录音 → 16k 单声道 WAV =================
+   DeepSeek 的 ASR 只收 16-bit PCM WAV / Ogg Opus，而手机 MediaRecorder
+   产出的是 webm（安卓）或 mp4（苹果）。这里用 WebAudio 解码后重采样到 16k，
+   再自己拼 44 字节 WAV 头 —— 全程在本机完成，只有转好的 WAV 才发出去。 */
+function asrWav(buf){
+  var len = buf.length, bytes = 44 + len * 2, ab = new ArrayBuffer(bytes), v = new DataView(ab);
+  function str(off, s){ for(var i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); }
+  str(0,'RIFF'); v.setUint32(4, bytes - 8, true); str(8,'WAVE');
+  str(12,'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 16000, true); v.setUint32(28, 32000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  str(36,'data'); v.setUint32(40, len * 2, true);
+  for(var i = 0; i < len; i++){
+    var x = Math.max(-1, Math.min(1, buf[i]));
+    v.setInt16(44 + i * 2, x < 0 ? x * 32768 : x * 32767, true);
+  }
+  return new Blob([ab], {type: 'audio/wav'});
+}
+
+function asrDecode(blob, cb){
+  var AC  = window.AudioContext || window.webkitAudioContext;
+  var OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if(!AC || !OAC) return cb(new Error('这个浏览器不支持音频解码'));
+  var fr = new FileReader();
+  fr.onload = function(){
+    var ctx;
+    try{ ctx = new AC(); }catch(e){ return cb(e); }
+    ctx.decodeAudioData(fr.result, function(buf){
+      try{
+        var n = Math.max(1, Math.ceil(buf.duration * 16000));
+        var off = new OAC(1, n, 16000);
+        var src = off.createBufferSource();
+        src.buffer = buf; src.connect(off.destination); src.start(0);
+        off.startRendering().then(function(r){
+          try{ if(ctx.close) ctx.close(); }catch(e){}
+          cb(null, asrWav(r.getChannelData(0)));
+        }, function(e){ cb(e); });
+      }catch(e){ cb(e); }
+    }, function(e){ cb(e); });
+  };
+  fr.onerror = function(){ cb(new Error('读取录音失败')); };
+  fr.readAsArrayBuffer(blob);
+}
+
+/* 录音结束后必须把麦克风轨道关掉，否则手机状态栏一直挂着录音标志 */
+function recStopTracks(){
+  if(_recStream){
+    try{ _recStream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
+  }
+  _recStream = null;
+  if(_recTimer){ clearInterval(_recTimer); _recTimer = null; }
+}
+
+function asrUpload(blob, cb){
+  var fd = new FormData();
+  fd.append('file', blob, 'note.wav');
+  fetch('https://api.deepseek.com/v1/tools/asr', {
+    method: 'POST',
+    headers: {'Authorization': 'Bearer ' + asrCfg.key},
+    body: fd
+  }).then(function(r){
+    return r.text().then(function(t){
+      var j = null;
+      try{ j = JSON.parse(t); }catch(e){}
+      if(!r.ok){
+        var msg = (j && j.error && (j.error.message || j.error)) || t || ('HTTP ' + r.status);
+        if(typeof msg !== 'string') msg = JSON.stringify(msg);
+        if(r.status === 401) msg = 'Key 不对或已失效（' + msg + '）';
+        return cb(new Error(msg));
+      }
+      if(!j || !j.text) return cb(new Error('接口没返回文字'));
+      cb(null, j.text);
+    });
+  }).catch(function(e){
+    cb(new Error('网络不通：' + ((e && e.message) || e)));
+  });
 }
 
 /* ================= 作业 =================
@@ -1338,6 +1634,20 @@ function viewHomework(){
 
   h += '<div class="btn-row" style="margin-bottom:6px">'
      +   '<button class="btn primary" style="flex:1;padding:11px" onclick="App.addHomework()">＋ 添加作业</button>'
+     +   '<button class="btn" style="padding:11px 14px" onclick="App.toggleQuick()">一句话</button>'
+     + '</div>'
+     + '<div class="qk' + (_qkDraft ? ' on' : '') + '" id="hw_qk">'
+     +   '<div class="qk-row">'
+     +     '<input id="hw_qk_in" autocomplete="off" enterkeyhint="done"'
+     +       ' value="' + esc(_qkDraft) + '"'
+     +       ' placeholder="如：高等数学 第三章习题 两周后交"'
+     +       ' oninput="App.echoQuick()"'
+     +       ' onkeydown="if(event.key===\'Enter\'){event.preventDefault();App.applyQuick();}">'
+     +     '<button type="button" class="qk-mic" id="hw_qk_mic" aria-label="录音" onclick="App.micTap()">🎤</button>'
+     +   '</div>'
+     +   '<div class="qk-hint" id="hw_qk_hint">说完按回车；也可以点麦克风直接录，识别后自动填进去。</div>'
+     +   '<div class="qk-echo' + (hwQuickEchoHtml(_qkDraft) ? ' on' : '') + '" id="hw_qk_echo">'
+     +     hwQuickEchoHtml(_qkDraft) + '</div>'
      + '</div>';
 
   if(!act.length && !dn.length){
@@ -1787,6 +2097,20 @@ function viewSettings(){
      + '<div id="cloud_stat" style="font-size:12px;color:var(--text3);margin-top:4px;line-height:1.6">'+cloudStatusText()+'</div>'
      + '</div>';
 
+  /* 语音识别（DeepSeek ASR，直连官方接口） */
+  h += '<div class="card"><div class="card-head"><div class="card-title">语音识别</div>'
+     + '<div class="card-note">DeepSeek ASR · 只存本机</div></div>'
+     + '<div style="font-size:11.5px;color:var(--text3);line-height:1.6;margin-bottom:10px">'
+     +   '录音会直连 DeepSeek 的识别接口，不经过任何中转服务器。'
+     +   'Key 只存在这台手机的浏览器里，不进备份文件、也不随云端同步上传。'
+     + '</div>'
+     + '<div class="field"><label>DeepSeek API Key</label>'
+     +   '<input id="asr_key" value="'+esc(asrCfg.key)+'" placeholder="sk-…" onchange="App.setAsrKey(this.value)"></div>'
+     + '<div style="font-size:11.5px;color:var(--text3);margin-top:2px;line-height:1.6">'
+     +   '不填也能用：作业页长按空格用输入法的语音，识别完一样会自动拆成课程 / 内容 / 截止。'
+     + '</div>'
+     + '</div>';
+
   /* 数据 */
   var lb = lsGet(BACKUP_KEY);
   var lbTxt = lb ? new Date(+lb).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '从未备份';
@@ -2096,6 +2420,9 @@ function flushCellNotes(){
 }
 
 /* ================= 交互 ================= */
+/* 「一句话」输入框的草稿：整页重绘（切页签、保存）后要能恢复，否则打到一半的字会丢 */
+var _qkDraft = '';
+
 var App = {
   /* 弹层关闭：HTML 里写的是 onclick="App.closeSheet()"，必须挂到 App 上才可调用 */
   closeSheet:function(){ closeSheet(); },
@@ -2472,8 +2799,127 @@ var App = {
     saveDb(); closeSheet(); render(true);
   },
 
+  /* ---- 一句话录入：打字或说话，都先变成一句话，再由规则拆成字段 ---- */
+  toggleQuick:function(){
+    var el = document.getElementById('hw_qk');
+    if(!el) return;
+    var on = el.classList.toggle('on');
+    if(on){
+      var i = document.getElementById('hw_qk_in');
+      if(i) setTimeout(function(){ try{ i.focus(); }catch(e){} }, 60);
+    }
+  },
+  /* 边打边显示解析结果 —— 说错了在进表单之前就能看出来 */
+  echoQuick:function(){
+    var i = document.getElementById('hw_qk_in');
+    var e = document.getElementById('hw_qk_echo');
+    if(!i || !e) return;
+    _qkDraft = i.value || '';
+    var html = hwQuickEchoHtml(_qkDraft);
+    e.className = html ? 'qk-echo on' : 'qk-echo';
+    e.innerHTML = html;
+  },
+  applyQuick:function(){
+    var i = document.getElementById('hw_qk_in');
+    if(!i) return;
+    var raw = (i.value || '').trim();
+    if(!raw){ i.focus(); return; }
+    var p = parseHomeworkText(raw);
+    _qkDraft = raw;
+    if(i.blur) i.blur();
+    App.addHomework(p || {});
+  },
+  /* 点一下开始录，再点一下结束。结束之后才转码上传，不边录边传 */
+  micTap:function(){
+    if(_rec && _rec.state === 'recording'){ App.micStop(); return; }
+    if(!asrReady()){
+      App.quickTip('还没填 DeepSeek 的 Key：去「设置 → 语音识别」填一次。也可以长按空格用输入法的语音。');
+      return;
+    }
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder){
+      App.quickTip('这个浏览器不支持网页录音，长按空格用输入法的语音也一样。');
+      return;
+    }
+    navigator.mediaDevices.getUserMedia({audio: true}).then(function(stream){
+      _recStream = stream;
+      var types = ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/mp4','audio/aac'];
+      var mt = '';
+      for(var i = 0; i < types.length; i++){
+        if(window.MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(types[i])){ mt = types[i]; break; }
+      }
+      _rec = mt ? new MediaRecorder(stream, {mimeType: mt}) : new MediaRecorder(stream);
+      _recChunks = [];
+      _rec.ondataavailable = function(e){ if(e.data && e.data.size) _recChunks.push(e.data); };
+      _rec.onstop = function(){
+        var blob = new Blob(_recChunks, {type: (_rec && _rec.mimeType) || mt || 'audio/webm'});
+        _rec = null; _recChunks = [];
+        recStopTracks();
+        if(!blob.size){ App.micIdle(); App.quickTip('没录到声音，再点一次试试。'); return; }
+        App.micBusy('识别中…');
+        asrDecode(blob, function(err, wav){
+          if(err){ App.micIdle(); App.quickTip('音频转换失败：' + (err.message || err)); return; }
+          asrUpload(wav, function(e2, text){
+            App.micIdle();
+            if(e2){ App.quickTip('识别失败：' + (e2.message || e2)); return; }
+            var inp = document.getElementById('hw_qk_in');
+            if(inp){
+              inp.value = (inp.value ? inp.value + ' ' : '') + text;
+              App.echoQuick();
+            }
+          });
+        });
+      };
+      _rec.start();
+      _recStartAt = Date.now();
+      App.micRec();
+      _recTimer = setInterval(function(){
+        var s = Math.floor((Date.now() - _recStartAt) / 1000);
+        var h = document.getElementById('hw_qk_hint');
+        if(h) h.textContent = '录音中 ' + s + ' 秒，再点一下结束';
+        if(s >= 60) App.micStop();        // 一句作业用不了这么久，自动收尾
+      }, 500);
+    }, function(e){
+      var m = (e && e.name === 'NotAllowedError') ? '麦克风权限被拒了' : ('打不开麦克风：' + ((e && e.message) || e));
+      App.quickTip(m + '。也可以长按空格用输入法的语音。');
+    });
+  },
+  micStop:function(){
+    if(_recTimer){ clearInterval(_recTimer); _recTimer = null; }
+    if(_rec && _rec.state === 'recording'){ try{ _rec.stop(); }catch(e){} }
+  },
+  micRec:function(){
+    var b = document.getElementById('hw_qk_mic');
+    if(b){ b.classList.add('rec'); b.classList.remove('busy'); b.textContent = '■'; }
+    var h = document.getElementById('hw_qk_hint');
+    if(h) h.textContent = '录音中 0 秒，再点一下结束';
+  },
+  micBusy:function(msg){
+    var b = document.getElementById('hw_qk_mic');
+    if(b){ b.classList.remove('rec'); b.classList.add('busy'); b.textContent = '…'; }
+    var h = document.getElementById('hw_qk_hint');
+    if(h) h.textContent = msg || '处理中…';
+  },
+  micIdle:function(){
+    var b = document.getElementById('hw_qk_mic');
+    if(b){ b.classList.remove('rec'); b.classList.remove('busy'); b.textContent = '🎤'; }
+    var h = document.getElementById('hw_qk_hint');
+    if(h) h.textContent = '说完按回车；也可以点麦克风直接录，识别后自动填进去。';
+  },
+  quickTip:function(msg){
+    var e = document.getElementById('hw_qk_echo');
+    if(!e) return;
+    e.className = 'qk-echo on';
+    e.innerHTML = '<span class="qk-w">' + esc(msg) + '</span>';
+  },
+  setAsrKey:function(v){
+    asrCfg.key = (v || '').trim();
+    saveAsr();
+  },
+
   /* ---- 作业 ---- */
-  addHomework:function(){
+  /* pf = 可选预填：{course,title,due,note}。来自「一句话」解析，
+     只负责把字段填好，表单还是那张表单 —— 确认和修改都在原来的位置上做。 */
+  addHomework:function(pf){
     var names = courseNames();
     sheetCtx = {mode:'homework', calY:0, calM:0};
     /* 科目必须列全。早先这里只渲染前 8 个，课表一多，排在后头的课永远选不到。
@@ -2517,6 +2963,20 @@ var App = {
     );
     App.renderCourseList();
     App.renderCal();
+    if(pf){
+      var c = document.getElementById('hw_course');
+      var t = document.getElementById('hw_title');
+      var n = document.getElementById('hw_note');
+      if(c && pf.course) c.value = pf.course;
+      if(t && pf.title)  t.value = pf.title;
+      if(n && pf.note)   n.value = pf.note;
+      if(pf.due) App.calPick(pf.due);
+      if(pf.course){
+        var chips = document.querySelectorAll('.chipx');
+        for(var k = 0; k < chips.length; k++)
+          chips[k].classList.toggle('on', chips[k].getAttribute('data-n') === pf.course);
+      }
+    }
   },
   /* 自绘课程下拉：全量列出（不截断），跟着输入框内容过滤。
      onblur 收起时用 setTimeout 兜一下 —— 点列表项的 mousedown 会先触发 blur。 */
@@ -2659,6 +3119,7 @@ var App = {
       note: (document.getElementById('hw_note').value||'').trim(),
       createdAt: Date.now()
     });
+    _qkDraft = '';                       // 存完了就把草稿清掉，下次进来是干净的
     saveDb(); closeSheet(); render(true);
   },
   delHomework:function(id){
@@ -3023,6 +3484,7 @@ function hashTab(){ return (location.hash || '').replace('#',''); }
 loadDb();
 loadUi();
 loadCloud();
+loadAsr();
 initPWA();
 if(VIEWS[hashTab()]) state.tab = hashTab();
 window.addEventListener('hashchange', function(){
