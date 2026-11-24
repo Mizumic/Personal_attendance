@@ -355,17 +355,26 @@ ALLOW = {
     'check.py': [r'\b[A-Za-z]:\\', r'file:///', r'(?<!\d)1[3-9]\d{9}(?!\d)', r'@'],
 }
 
+# scp 风格的 git 远程地址（user@host:path）不是邮箱，检测邮箱前先抹掉。
+# 冒号后必须紧跟路径字符才算地址 —— 这样 "me@x.com: 备注" 仍会被当成邮箱报出来。
+GIT_REMOTE_RE = re.compile(r'\b[\w-]+@[\w.-]+:[\w./~-]+')
+
+# 这两条的正则吃的是"抹掉 git 地址之后"的文本
+GIT_AWARE = ('疑似邮箱地址',)
+
 
 def check_secrets():
     hits = []
     for f in public_text_files():
         txt = read(f) or ''
         allow = '|'.join(ALLOW.get(os.path.basename(f), []))
+        scan_all = GIT_REMOTE_RE.sub('', txt)
         for pat, label in SECRET_PATTERNS:
-            for m in re.finditer(pat, txt):
+            scan = scan_all if label in GIT_AWARE else txt
+            for m in re.finditer(pat, scan):
                 if allow and re.search(allow, m.group(0)):
                     continue
-                line_no = txt[:m.start()].count('\n') + 1
+                line_no = scan[:m.start()].count('\n') + 1
                 hits.append('%s:%d  %s → %s' % (f, line_no, label, m.group(0)[:46]))
                 break
 
