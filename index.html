@@ -397,7 +397,7 @@ button,input,select{font-family:inherit;color:inherit;}
 
 /* ================= 常量 ================= */
 /* 发版时和 sw.js 的 CACHE 版本一起改 —— 设置页会显示它，方便确认手机上是不是新版 */
-var APP_VER = 'v2.10（2026-11-19）';
+var APP_VER = 'v2.11（2026-11-26）';
 var DB_KEY = 'dormAttendance.v1';
 var BACKUP_KEY = 'dormAttendance.lastBackupAt';
 var CLOUD_KEY = 'dormAttendance.cloud';
@@ -564,6 +564,11 @@ function loadCloud(){
   if(cloudCfg.lastOk === undefined) cloudCfg.lastOk = null;
   if(!cloudCfg.lastErr) cloudCfg.lastErr = '';
   if(!cloudCfg.pushTime) cloudCfg.pushTime = '21:30';
+  /* 2026-11-26：推送时点支持多个。老配置只有单值 pushTime，这里迁成列表；
+     pushTime 保留不动 —— 旧版服务器只认它，同步时会退化成"用第一个时点"。 */
+  if(!Array.isArray(cloudCfg.pushTimes) || !cloudCfg.pushTimes.length){
+    cloudCfg.pushTimes = [cloudCfg.pushTime || '21:30'];
+  }
 }
 function saveCloud(){ lsSet(CLOUD_KEY, JSON.stringify(cloudCfg)); }
 function cloudReady(){ return !!(cloudCfg.url && cloudCfg.token); }
@@ -595,11 +600,16 @@ function cloudSnapshot(){
     schema: 1,
     app: APP_VER,
     updatedAt: Date.now(),
-    /* 本机偏好：服务器按这个时间给你推；随每次同步上传，服务器收到后立即生效 */
-    prefs: { pushTime: cloudCfg.pushTime || '21:30' },
+    /* 本机偏好：服务器按这些时点给你推；随每次同步上传，服务器收到后立即生效。
+       2026-11-26 起是数组；同时带一个 pushTime（=第一个），旧服务器照旧能用，不会因为
+       不认识新字段就退回配置里的旧值。 */
+    prefs: { pushTimes: (cloudCfg.pushTimes || ['21:30']).slice(),
+             pushTime: (cloudCfg.pushTimes || ['21:30'])[0] || '21:30' },
     homework: db.homework.map(function(h){
       return { id:h.id, course:h.course||'', title:h.title||'', due:h.due||'',
-               note:h.note||'', done:!!h.done, doneAt:h.doneAt||0, createdAt:h.createdAt||0 };
+               note:h.note||'', done:!!h.done, doneAt:h.doneAt||0, createdAt:h.createdAt||0,
+               /* 一次性提醒（2026-11-26）：'YYYY-MM-DD HH:MM'，服务器到点单独推这一条 */
+               remindAt:h.remindAt||'' };
     })
   };
 }
@@ -634,12 +644,37 @@ function cloudStatusText(){
   return '已配置，尚未同步过 —— 点「立即同步」试试。';
 }
 /* 推送时间步进后，只刷新大字号显示（不整页重画） */
+/* 推送时点列表（2026-11-26）：可以有多个时点，全按钮、零原生控件 ——
+   与原来的单个时间同一套道理：iOS 主屏模式下原生 time 控件的弹层可能"看不见但能盲点"。
+   上下限：至少 1 个、最多 8 个（再多就不是提醒是骚扰了，服务器也按 8 截断）。 */
+function pushTimesHTML(){
+  var arr = (cloudCfg.pushTimes && cloudCfg.pushTimes.length) ? cloudCfg.pushTimes : ['21:30'];
+  var rows = arr.map(function(t, i){
+    var p = String(t || '21:30').split(':');
+    var hh = p[0] || '21', mm = p[1] || '30';
+    return '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:14px;margin-bottom:6px">'
+      + '<button type="button" class="btn sm" onclick="App.bumpPushTime(' + i + ',-60)" aria-label="小时减一">&minus;</button>'
+      + '<b style="font-size:18px;min-width:38px;text-align:center">' + esc(hh) + '</b>'
+      + '<button type="button" class="btn sm" onclick="App.bumpPushTime(' + i + ',60)" aria-label="小时加一">＋</button>'
+      + '<span>时</span><span style="width:8px"></span>'
+      + '<button type="button" class="btn sm" onclick="App.bumpPushTime(' + i + ',-5)" aria-label="分钟减五">&minus;</button>'
+      + '<b style="font-size:18px;min-width:38px;text-align:center">' + esc(mm) + '</b>'
+      + '<button type="button" class="btn sm" onclick="App.bumpPushTime(' + i + ',5)" aria-label="分钟加五">＋</button>'
+      + '<span>分</span>'
+      + (arr.length > 1
+          ? '<button type="button" class="btn sm" onclick="App.removePushTime(' + i + ')"'
+            + ' aria-label="删掉这个时点" style="margin-left:auto;color:#c0392b">×</button>'
+          : '')
+      + '</div>';
+  }).join('');
+  if(arr.length < 8){
+    rows += '<div style="margin-top:2px"><button type="button" class="btn sm" onclick="App.addPushTime()">＋ 添加时点</button></div>';
+  }
+  return rows;
+}
 function refreshPushTimeShow(){
-  var t = String(cloudCfg.pushTime || '21:30').split(':');
-  var hEl = document.getElementById('cloud_time_h_show');
-  var mEl = document.getElementById('cloud_time_m_show');
-  if(hEl) hEl.textContent = t[0] || '21';
-  if(mEl) mEl.textContent = t[1] || '30';
+  var box = document.getElementById('cloud_times');
+  if(box) box.innerHTML = pushTimesHTML();
 }
 /* 同步完成 / 配置变化后只刷新这一行状态，不整页重画（免得打断正在输入的框） */
 function refreshCloudStatus(){
@@ -1604,6 +1639,44 @@ function viewToday(){
 /* ================= 渲染：作业 =================
    作业分两态：进行中（按截止紧急度分组）与已完成（沉底归档）。
    「完成」只是挂个 done 标记，不删数据 —— 手滑点错了还能恢复。 */
+/* 提醒时间的短显示：今天只给时:分，别的日子带月/日（按钮上放不下完整时间）。 */
+function shortRemind(at){
+  var s = String(at || '');
+  if(!s) return '';
+  var d = s.slice(0, 10), t = s.slice(11, 16);
+  return d === fmt(new Date()) ? t : (s.slice(5, 10).replace('-', '/') + ' ' + t);
+}
+
+/* ---- 自定义提醒时间（2026-11-26）：日期用 4 个 chip，时/分用自绘步进器 ----
+   不用原生 datetime-local：弹层是 fixed + transform 的，原生弹层会被带偏（同作业表单的道理）。 */
+var _remindDraft = null;
+function remindCustomHTML(){
+  var d = _remindDraft || {days:0, h:9, m:0, err:''};
+  var names = ['今天', '明天', '后天', '大后天'];
+  var chips = names.map(function(n, i){
+    return '<button type="button" class="btn sm' + (d.days === i ? ' primary' : '') + '"'
+      + ' onclick="App.pickRemindDay(' + i + ')">' + n + '</button>';
+  }).join('');
+  var hw = db.homework.filter(function(y){ return y.id === d.id; })[0] || {};
+  return '<h3>自定义提醒时间</h3>'
+    + '<div class="sst">' + esc(hw.title || '') + '</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">' + chips + '</div>'
+    + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:14px">'
+    +   '<button type="button" class="btn sm" onclick="App.bumpRemind(-60)" aria-label="小时减一">&minus;</button>'
+    +   '<b style="font-size:18px;min-width:38px;text-align:center">' + pad2(d.h) + '</b>'
+    +   '<button type="button" class="btn sm" onclick="App.bumpRemind(60)" aria-label="小时加一">＋</button>'
+    +   '<span>时</span><span style="width:8px"></span>'
+    +   '<button type="button" class="btn sm" onclick="App.bumpRemind(-5)" aria-label="分钟减五">&minus;</button>'
+    +   '<b style="font-size:18px;min-width:38px;text-align:center">' + pad2(d.m) + '</b>'
+    +   '<button type="button" class="btn sm" onclick="App.bumpRemind(5)" aria-label="分钟加五">＋</button>'
+    +   '<span>分</span>'
+    + '</div>'
+    + (d.err ? '<div style="color:#c0392b;font-size:12.5px;margin-top:10px">' + esc(d.err) + '</div>' : '')
+    + '<div class="btn-row" style="margin-top:16px">'
+    +   '<button class="btn primary" style="flex:1" onclick="App.confirmRemind()">就这个时间</button>'
+    + '</div>';
+}
+
 function hwItem(x, st){
   var cls = x.done ? 'done' : ({over:'due-over', today:'due-today', soon:'due-soon'}[st] || '');
   return '<div class="hw ' + cls + '">'
@@ -1617,6 +1690,9 @@ function hwItem(x, st){
     +   (x.done
           ? '<button class="btn sm" onclick="App.undoHomework(\'' + x.id + '\')">恢复</button>'
           : '<button class="btn sm" onclick="App.doneHomework(\'' + x.id + '\')">完成</button>')
+    +   (x.done ? '' : '<button class="btn sm" onclick="App.remindSheet(\'' + x.id + '\')"'
+          + ' title="到点单独推一条提醒">'
+          + (x.remindAt ? '⏰ ' + esc(shortRemind(x.remindAt)) : '⏰ 提醒') + '</button>')
     +   '<button class="btn sm danger" onclick="App.delHomework(\'' + x.id + '\')">删除</button>'
     + '</div></div>';
 }
@@ -2077,20 +2153,10 @@ function viewSettings(){
      + '</div>'
      + '<div class="field"><label>服务器接口地址</label><input id="cloud_url" value="'+esc(cloudCfg.url)+'" placeholder="https://你的域名/api/homework" onchange="App.setCloudUrl(this.value)"></div>'
      + '<div class="field"><label>同步密钥</label><input id="cloud_token" value="'+esc(cloudCfg.token)+'" placeholder="服务器上生成的那一长串密钥" onchange="App.setCloudToken(this.value)"></div>'
-     + '<div class="field"><label>推送时间</label>'
-     +   '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:14px">'
-     +     '<button type="button" class="btn sm" onclick="App.bumpPushTime(-60)" aria-label="小时减一">&minus;</button>'
-     +     '<b id="cloud_time_h_show" style="font-size:18px;min-width:38px;text-align:center">'+esc((cloudCfg.pushTime||'21:30').split(':')[0])+'</b>'
-     +     '<button type="button" class="btn sm" onclick="App.bumpPushTime(60)" aria-label="小时加一">＋</button>'
-     +     '<span>时</span>'
-     +     '<span style="width:12px"></span>'
-     +     '<button type="button" class="btn sm" onclick="App.bumpPushTime(-5)" aria-label="分钟减五">&minus;</button>'
-     +     '<b id="cloud_time_m_show" style="font-size:18px;min-width:38px;text-align:center">'+esc((cloudCfg.pushTime||'21:30').split(':')[1]||'30')+'</b>'
-     +     '<button type="button" class="btn sm" onclick="App.bumpPushTime(5)" aria-label="分钟加五">＋</button>'
-     +     '<span>分</span>'
-     +   '</div>'
+     + '<div class="field"><label>推送时点</label>'
+     +   '<div id="cloud_times">'+pushTimesHTML()+'</div>'
      + '</div>'
-     + '<div style="font-size:11.5px;color:var(--text3);margin:-4px 0 10px">服务器每天在这个时候检查一遍：只要还有未完成的事项、且当天没推过，就推到你手机。改完自动生效。</div>'
+     + '<div style="font-size:11.5px;color:var(--text3);margin:-4px 0 10px">服务器每天在<b>每个时点</b>都会检查一遍：只要还有未完成的事项、且这个时点当天没推过，就推到你手机。改完自动生效。</div>'
      + '<div class="btn-row"><button class="btn primary" onclick="App.cloudSyncNow()">立即同步</button>'
      +   '<button class="btn" onclick="App.cloudTestPush()">测试推送</button></div>'
      + '<div id="cloud_test_msg" style="font-size:12px;color:var(--text3);margin-top:8px;line-height:1.6"></div>'
@@ -3135,7 +3201,84 @@ var App = {
     if(!x) return;
     x.done = true;
     x.doneAt = Date.now();
+    /* 做完了就别再提醒了：服务器本来也会跳过 done 的，这里清掉免得「恢复」后
+       又冒出一个几天前的旧提醒 */
+    x.remindAt = '';
     saveDb(); render(true);
+  },
+  /* ---- 作业提醒（2026-11-26）：到点由服务器单推这一条，不掺进每天的汇总里 ---- */
+  remindSheet:function(id){
+    var x = db.homework.filter(function(y){ return y.id===id; })[0];
+    if(!x) return;
+    var cur = x.remindAt
+      ? '<span style="color:#1d4ed8">已设 ' + esc(shortRemind(x.remindAt)) + '</span>'
+      : '还没设提醒';
+    openSheet('<h3>提醒我</h3>'
+      + '<div class="sst">' + esc(x.title) + ' · ' + cur + '</div>'
+      + '<div class="sheet-opts">'
+      +   '<button onclick="App.setRemind(\'' + id + '\',1)">1 小时后</button>'
+      +   '<button onclick="App.setRemind(\'' + id + '\',5)">5 小时后</button>'
+      +   '<button onclick="App.setRemind(\'' + id + '\',24)">1 天后</button>'
+      +   '<button onclick="App.remindCustom(\'' + id + '\')">自定义时间</button>'
+      + '</div>'
+      + (x.remindAt
+          ? '<div style="margin-top:12px"><button class="btn" style="width:100%"'
+            + ' onclick="App.clearRemind(\'' + id + '\')">取消提醒</button></div>'
+          : ''));
+  },
+  setRemind:function(id, hours){
+    var x = db.homework.filter(function(y){ return y.id===id; })[0];
+    if(!x) return;
+    var t = new Date(Date.now() + hours * 3600 * 1000);
+    x.remindAt = fmt(t) + ' ' + pad2(t.getHours()) + ':' + pad2(t.getMinutes());
+    saveDb(); closeSheet(); render(true);
+  },
+  clearRemind:function(id){
+    var x = db.homework.filter(function(y){ return y.id===id; })[0];
+    if(!x) return;
+    x.remindAt = '';
+    saveDb(); closeSheet(); render(true);
+  },
+  remindCustom:function(id){
+    _remindDraft = {id:id, days:0, h:9, m:0, err:''};
+    var el = document.getElementById('sheetEl');
+    if(el) el.innerHTML = '<div class="sheet-grip"></div>' + remindCustomHTML();
+  },
+  pickRemindDay:function(n){
+    if(!_remindDraft) return;
+    _remindDraft.days = n;
+    _remindDraft.err = '';
+    var el = document.getElementById('sheetEl');
+    if(el) el.innerHTML = '<div class="sheet-grip"></div>' + remindCustomHTML();
+  },
+  bumpRemind:function(deltaMin){
+    if(!_remindDraft) return;
+    var total = ((_remindDraft.h * 60 + _remindDraft.m + deltaMin) % 1440 + 1440) % 1440;
+    _remindDraft.h = Math.floor(total / 60);
+    _remindDraft.m = total % 60;
+    _remindDraft.err = '';
+    var el = document.getElementById('sheetEl');
+    if(el) el.innerHTML = '<div class="sheet-grip"></div>' + remindCustomHTML();
+  },
+  confirmRemind:function(){
+    var d = _remindDraft;
+    if(!d) return;
+    var x = db.homework.filter(function(y){ return y.id===d.id; })[0];
+    if(!x) return;
+    var t = new Date();
+    t.setDate(t.getDate() + d.days);
+    var at = fmt(t) + ' ' + pad2(d.h) + ':' + pad2(d.m);
+    var nowD = new Date();
+    var nowS = fmt(nowD) + ' ' + pad2(nowD.getHours()) + ':' + pad2(nowD.getMinutes());
+    if(at <= nowS){
+      d.err = '这个时间已经过了，换一个晚一点的';
+      var el = document.getElementById('sheetEl');
+      if(el) el.innerHTML = '<div class="sheet-grip"></div>' + remindCustomHTML();
+      return;
+    }
+    x.remindAt = at;
+    _remindDraft = null;
+    saveDb(); closeSheet(); render(true);
   },
   undoHomework:function(id){
     var x = db.homework.filter(function(y){ return y.id===id; })[0];
@@ -3169,18 +3312,40 @@ var App = {
     cloudCfg.lastErr = ''; cloudCfg.lastOk = null;
     saveCloud(); refreshCloudStatus();
   },
-  /* 推送时间加减（自绘步进器 —— 全按钮、零原生控件：
+  /* 推送时点加减（自绘步进器 —— 全按钮、零原生控件：
      iOS 主屏模式下原生 date/time/select 的弹出层都可能"看不见但能盲点"，
      按钮永远可点、时间数字永远平铺显示）。
-     小时 ±60 分钟、分钟 ±5 分钟，均为循环；改完随下一次同步捎给服务器。 */
-  bumpPushTime:function(deltaMin){
-    var t = String(cloudCfg.pushTime || '21:30').split(':');
+     2026-11-26：支持多个时点，idx 是第几个；小时 ±60 分钟、分钟 ±5 分钟，均为循环。
+     改完随下一次同步捎给服务器（prefs.pushTimes）。 */
+  bumpPushTime:function(idx, deltaMin){
+    var arr = (cloudCfg.pushTimes || ['21:30']).slice();
+    var t = String(arr[idx] || '21:30').split(':');
     var h = parseInt(t[0], 10); if(isNaN(h)) h = 21;
     var m = parseInt(t[1], 10); if(isNaN(m)) m = 30;
     var total = (((h * 60 + m + deltaMin) % 1440) + 1440) % 1440;
-    h = Math.floor(total / 60);
-    m = total % 60;
-    cloudCfg.pushTime = pad2(h) + ':' + pad2(m);
+    arr[idx] = pad2(Math.floor(total / 60)) + ':' + pad2(total % 60);
+    cloudCfg.pushTimes = arr;
+    saveCloud();
+    refreshPushTimeShow();
+    scheduleCloudSync();
+  },
+  /* 加一个时点：默认取最后一个 +2 小时（常加的是相邻时段，比固定 09:00 顺手） */
+  addPushTime:function(){
+    var arr = (cloudCfg.pushTimes || ['21:30']).slice();
+    if(arr.length >= 8) return;
+    var last = String(arr[arr.length - 1] || '21:30').split(':');
+    var total = (parseInt(last[0], 10) * 60 + parseInt(last[1], 10) + 120) % 1440;
+    arr.push(pad2(Math.floor(total / 60)) + ':' + pad2(total % 60));
+    cloudCfg.pushTimes = arr;
+    saveCloud();
+    refreshPushTimeShow();
+    scheduleCloudSync();
+  },
+  removePushTime:function(idx){
+    var arr = (cloudCfg.pushTimes || []).slice();
+    if(arr.length <= 1) return;          // 至少留一个，否则等于关掉了提醒
+    arr.splice(idx, 1);
+    cloudCfg.pushTimes = arr;
     saveCloud();
     refreshPushTimeShow();
     scheduleCloudSync();
